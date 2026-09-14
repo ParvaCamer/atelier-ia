@@ -1,0 +1,30 @@
+[package]
+name = "atelier-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+atelier-domain.workspace = true
+atelier-bus.workspace = true
+atelier-store.workspace = true
+atelier-providers.workspace = true
+atelier-permissions.workspace = true
+atelier-tools.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+tokio-util.workspace = true
+shell-words.workspace = true
+reqwest.workspace = true
+croner.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }

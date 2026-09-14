@@ -1,0 +1,80 @@
+//! Types de configuration exposés à l'écran de réglages.
+
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ProviderConfig {
+    pub id: String,
+    /// "claude-code" | "ollama"
+    pub kind: String,
+    pub label: String,
+    pub base_url: Option<String>,
+    pub enabled: bool,
+}
+
+/// Alias de modèle → fournisseur + modèle. C'est ce qui permet de changer
+/// de fournisseur sans toucher à la définition des agents.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ModelRoute {
+    pub model_ref: String,
+    pub provider_id: String,
+    /// Vide = modèle par défaut du fournisseur.
+    pub model: String,
+    #[ts(type = "number")]
+    pub max_tokens: i64,
+    pub temperature: f64,
+    pub fallback_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export)]
+pub enum HealthState {
+    Ok,
+    /// Joignable mais pas prêt (ex. Claude Code installé mais non connecté).
+    Degraded,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ProviderHealth {
+    pub provider_id: String,
+    pub state: HealthState,
+    /// Explication lisible : « connecté (abonnement Pro) », « Ollama éteint »…
+    pub detail: String,
+    /// Modèles disponibles localement (Ollama).
+    pub models: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ToolInfo {
+    pub id: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AppSettings {
+    /// Lancer l'app Ollama au démarrage d'Atelier si elle est éteinte.
+    /// Sans ça, l'aiguillage se replie en silence sur Claude Code (quota).
+    pub start_ollama_with_app: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RouteTest {
+    pub served_by: String,
+    #[ts(type = "number")]
+    pub latency_ms: i64,
+}

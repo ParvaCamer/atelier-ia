@@ -1,0 +1,61 @@
+[workspace]
+members = ["src-tauri", "crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Romain Camerlynck"]
+
+[workspace.dependencies]
+# --- internal ---
+atelier-domain      = { path = "crates/domain" }
+atelier-bus         = { path = "crates/bus" }
+atelier-store       = { path = "crates/store" }
+atelier-providers   = { path = "crates/providers" }
+atelier-permissions = { path = "crates/permissions" }
+atelier-tools       = { path = "crates/tools" }
+atelier-engine      = { path = "crates/engine" }
+
+# --- async runtime ---
+tokio       = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "process", "io-util", "fs"] }
+tokio-util  = { version = "0.7", features = ["rt"] }
+async-trait = "0.1"
+futures     = "0.3"
+
+# --- serialization ---
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+ts-rs      = { version = "12", features = ["chrono-impl", "uuid-impl", "serde-json-impl"] }
+
+# --- persistence ---
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "chrono", "json", "migrate", "macros"] }
+
+# --- misc ---
+uuid        = { version = "1", features = ["v4", "v7", "serde"] }
+chrono      = { version = "0.4", features = ["serde"] }
+thiserror   = "2"
+anyhow      = "1"
+tracing     = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# --- io ---
+portable-pty = "0.9"
+shell-words  = "1"
+croner       = "4"
+libc         = "0.2"
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls", "rustls-native-certs", "charset", "http2"] }
+
+[profile.dev]
+opt-level = 1          # keep the engine responsive in dev
+
+[profile.dev.package."*"]
+opt-level = 3          # deps compiled once, fast at runtime
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

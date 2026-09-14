@@ -1,0 +1,11 @@
+[package]
+name = "atelier-bus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+atelier-domain.workspace = true
+tokio.workspace = true
+serde.workspace = true
+tracing.workspace = true
