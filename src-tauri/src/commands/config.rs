@@ -46,6 +46,17 @@ pub async fn save_workflow(state: State<'_, AppState>, workflow: Workflow) -> Cm
 }
 
 #[tauri::command]
+pub fn team_templates(state: State<'_, AppState>) -> Vec<TeamTemplate> {
+    state.engine.team_templates()
+}
+
+/// Crée les membres manquants d'une équipe type, permissions comprises.
+#[tauri::command]
+pub async fn create_team(state: State<'_, AppState>, project_id: ProjectId, template: String) -> CmdResult<Vec<Agent>> {
+    state.engine.create_team(&project_id, &template).await.map_err(err)
+}
+
+#[tauri::command]
 pub async fn check_workflow(state: State<'_, AppState>, workflow: Workflow) -> CmdResult<WorkflowCheck> {
     state.engine.check_workflow(&workflow).await.map_err(err)
 }

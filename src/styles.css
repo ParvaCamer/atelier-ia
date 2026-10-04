@@ -906,3 +906,10 @@ select.input { appearance: none; padding-right: 22px; background-image: linear-g
 .dep-chip button:hover { color: var(--err); }
 .dep-add { width: auto; height: 24px; padding: 0 6px; font-size: 12px; }
 @media (max-width: 1180px) { .wf-editor { grid-template-columns: minmax(0, 1fr); } .wf-inspector { height: auto; } }
+
+/* ---------------------------------- équipes types ---------------------------------- */
+.teams { margin-top: 22px; }
+.teams h3 { margin: 0 0 4px; font-size: 13px; font-weight: 620; }
+.teams .field-hint { display: block; max-width: 620px; margin-bottom: 10px; }
+.teams-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.teams-row .btn small { color: var(--text-faint); margin-left: 2px; }

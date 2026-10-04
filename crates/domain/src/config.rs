@@ -98,3 +98,17 @@ pub struct RouteTest {
     #[ts(type = "number")]
     pub latency_ms: i64,
 }
+
+/// Équipe type proposée à la création d'un projet. Le moteur en est la
+/// source : l'interface ne connaît ni les rôles, ni les permissions.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TeamTemplate {
+    pub key: String,
+    pub label: String,
+    /// Rôles créés, dans l'ordre.
+    pub members: Vec<String>,
+    /// Préréglage de permissions appliqué à chaque membre.
+    pub preset: String,
+}

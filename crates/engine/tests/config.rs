@@ -11,6 +11,9 @@ async fn engine() -> Arc<Engine> {
     let db = Db::open_in_memory().await.unwrap();
     seed::run_if_empty(&db).await.unwrap();
     seed::ensure_builtin_providers(&db).await.unwrap();
+    // Comme au démarrage de l'application (src-tauri/src/lib.rs) : sans les
+    // skills livrés, le banc d'essai ne testerait pas la vraie situation.
+    seed::ensure_builtin_agent_skills(&db).await.unwrap();
     Engine::start_with(db, EngineConfig::default()).await.unwrap()
 }
 
@@ -531,4 +534,33 @@ async fn alias_redirige_vers_openai_sans_toucher_au_reste() {
     let err = e.test_route("reasoning.high").await.unwrap_err().to_string();
     assert!(err.contains("Réglages › IA"), "{err}");
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1, "aucun appel sans clé");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn equipe_type_complete_sans_dupliquer() {
+    let e = engine().await;
+    let project = e.save_project(project_draft("Tethr", Some(temp_dir()))).await.unwrap();
+
+    // Un membre existe déjà sous le même nom : il doit être laissé tel quel.
+    let mut deja = agent_draft(&project.id, "Tech Lead Tethr");
+    deja.role = "Rôle maison".into();
+    let deja = e.save_agent(deja).await.unwrap();
+
+    let created = e.create_team(&project.id, "developpement").await.unwrap();
+    assert_eq!(created.len(), 3, "le membre déjà présent n'est pas recréé : {created:?}");
+    assert!(created.iter().all(|a| a.project_id == project.id));
+    let intact = repo::agents::get(e.db(), &deja.id).await.unwrap();
+    assert_eq!(intact.role, "Rôle maison", "membre existant intact");
+
+    // Les permissions suivent : une équipe sans droits ne sert à rien.
+    let front = created.iter().find(|a| a.role == "Développeur Frontend").expect("front");
+    let grants = e.agent_grants(&front.id).await.unwrap();
+    assert!(!grants.is_empty(), "préréglage de permissions appliqué");
+    assert_eq!(front.skill_slug.as_deref(), Some("dev-front"), "skill de rôle rattaché");
+
+    // Relancer ne duplique pas : l'équipe est complète.
+    let err = e.create_team(&project.id, "developpement").await.unwrap_err().to_string();
+    assert!(err.contains("déjà au complet"), "{err}");
+
+    assert!(e.create_team(&project.id, "fantome").await.is_err(), "équipe type inconnue refusée");
 }

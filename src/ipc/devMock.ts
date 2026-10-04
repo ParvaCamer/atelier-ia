@@ -341,6 +341,20 @@ export function installDevMock() {
         if (i >= 0) WORKFLOWS[i] = w; else WORKFLOWS.push(w);
         return w;
       }
+      case "team_templates": return [
+        { key: "developpement", label: "Développement", preset: "developer", members: ["Tech Lead", "Développeur Frontend", "Développeur Backend", "Assurance qualité"] },
+        { key: "contenu", label: "Contenu", preset: "developer", members: ["Direction artistique", "Motion designer", "Rédaction"] },
+        { key: "ops", label: "Exploitation", preset: "read-only", members: ["Ingénieur système", "Supervision"] },
+      ];
+      case "create_team": {
+        const made = ["Tech Lead", "Développeur Frontend"].map((role, i) => ({
+          id: `t${Date.now()}${i}`, projectId: args.projectId, name: `${role} (simulé)`, role,
+          systemPrompt: "", skills: [], tools: ["fs.read"], modelRef: "reasoning.high",
+          archetype: i === 0 ? "lead" : "dev", enabled: true, skillSlug: null, skillNotes: "",
+        }));
+        AGENTS.push(...(made as never[]));
+        return made;
+      }
       case "delete_workflow": return null;
       case "check_workflow": return mockCheck(args.workflow);
       case "list_provider_configs": return PROVIDERS;

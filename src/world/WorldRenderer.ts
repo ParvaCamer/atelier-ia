@@ -147,6 +147,7 @@ export class WorldRenderer {
       this.lit = -1;
       this.applyNight();
       const zones = [...this.zones.values()];
+      this.orchestrator.place(this.zones);
       // L'estrade centrale se contourne : sinon agents et visiteur la traversent.
       this.obstacles = [...zones.flatMap((z) => z.obstacles), this.orchestrator.obstacle()];
       this.platforms = zones.map(({ project: { zone } }) => ({

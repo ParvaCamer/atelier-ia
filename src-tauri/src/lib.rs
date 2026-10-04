@@ -78,6 +78,8 @@ pub fn run() {
             commands::config::agent_grants,
             commands::config::save_agent_grants,
             commands::config::grant_preset,
+            commands::config::team_templates,
+            commands::config::create_team,
             commands::config::save_workflow,
             commands::config::check_workflow,
             commands::config::delete_workflow,

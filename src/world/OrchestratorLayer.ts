@@ -126,6 +126,25 @@ export class OrchestratorLayer {
     scene.add(this.group);
   }
 
+  /**
+   * Replace l'estrade au barycentre des zones. Appelée quand la liste des
+   * projets change : avec cinq projets ou plus, le monde s'étend et une
+   * estrade restée à l'origine ne serait plus au centre de rien.
+   */
+  place(zones: Map<string, ZoneLayout>) {
+    if (zones.size === 0) {
+      this.group.position.set(0, 0, 0);
+      return;
+    }
+    let x = 0;
+    let z = 0;
+    for (const zone of zones.values()) {
+      x += zone.center.x;
+      z += zone.center.z;
+    }
+    this.group.position.set(x / zones.size, 0, z / zones.size);
+  }
+
   /** Cap visé : vers le projet concerné, sinon vers la caméra. */
   sync(view: OrchestratorView, zones: Map<string, ZoneLayout>, camera: Vector3) {
     this.status = view.status;
@@ -184,8 +203,9 @@ export class OrchestratorLayer {
     return busy || Math.abs(delta) > 0.01;
   }
 
-  /** Emprise au sol : personne ne traverse l'estrade. */
+  /** Emprise au sol, à sa place courante : personne ne traverse l'estrade. */
   obstacle() {
-    return { minX: -DAIS_R, maxX: DAIS_R, minZ: -DAIS_R, maxZ: DAIS_R };
+    const { x, z } = this.group.position;
+    return { minX: x - DAIS_R, maxX: x + DAIS_R, minZ: z - DAIS_R, maxZ: z + DAIS_R };
   }
 }

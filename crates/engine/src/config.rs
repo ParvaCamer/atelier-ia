@@ -367,6 +367,74 @@ impl Engine {
         Ok(repo::grants::list_for_agent(self.db(), id).await?)
     }
 
+    pub fn team_templates(&self) -> Vec<TeamTemplate> {
+        TEAMS
+            .iter()
+            .map(|(key, label, preset, members)| TeamTemplate {
+                key: key.to_string(),
+                label: label.to_string(),
+                members: members.iter().map(|(role, _, _)| role.to_string()).collect(),
+                preset: preset.to_string(),
+            })
+            .collect()
+    }
+
+    /// Crée les agents manquants d'une équipe type, avec leurs permissions.
+    /// Les membres déjà présents sont laissés tels quels : relancer la
+    /// commande complète l'équipe au lieu de la dupliquer.
+    pub async fn create_team(&self, project_id: &ProjectId, template: &str) -> anyhow::Result<Vec<Agent>> {
+        let (_, label, preset, members) = TEAMS
+            .iter()
+            .find(|(key, _, _, _)| *key == template)
+            .ok_or_else(|| anyhow::anyhow!("équipe type « {template} » inconnue"))?;
+
+        let project = repo::projects::list_all(self.db())
+            .await?
+            .into_iter()
+            .find(|p| &p.id == project_id)
+            .ok_or_else(|| anyhow::anyhow!("projet introuvable"))?;
+        let existing = repo::agents::list(self.db()).await?;
+        let skills: HashSet<String> = repo::agent_skills::list(self.db())
+            .await?
+            .into_iter()
+            .map(|s| s.slug)
+            .collect();
+
+        let mut created = Vec::new();
+        for (role, archetype, slug) in members.iter() {
+            let name = format!("{role} {}", project.name);
+            if existing.iter().any(|a| a.project_id == project.id && a.name.eq_ignore_ascii_case(&name)) {
+                continue;
+            }
+            // Passe par save_agent : une seule porte de validation, donc pas
+            // d'équipe créée avec des règles que l'écran d'agent refuserait.
+            let agent = self
+                .save_agent(Agent {
+                    id: AgentId(String::new()),
+                    project_id: project.id.clone(),
+                    name,
+                    role: role.to_string(),
+                    system_prompt: String::new(),
+                    skills: Vec::new(),
+                    tools: tools_for(preset),
+                    model_ref: "reasoning.high".into(),
+                    archetype: *archetype,
+                    enabled: true,
+                    skill_slug: slug.filter(|s| skills.contains(*s)).map(|s| s.to_string()),
+                    skill_notes: String::new(),
+                })
+                .await?;
+            let grants = self.preset_grants(&agent.id, preset).await?;
+            self.save_agent_grants(&agent.id, grants).await?;
+            created.push(agent);
+        }
+
+        if created.is_empty() {
+            anyhow::bail!("l'équipe {label} est déjà au complet dans {}", project.name);
+        }
+        Ok(created)
+    }
+
     pub async fn preset_grants(&self, id: &AgentId, preset: &str) -> anyhow::Result<Vec<Grant>> {
         let agent = repo::agents::get(self.db(), id).await?;
         let project = repo::projects::get(self.db(), &agent.project_id).await?;
@@ -1062,4 +1130,47 @@ fn head(text: &str, max: usize) -> String {
         return text.to_string();
     }
     text.chars().take(max).collect::<String>().trim_end().to_string()
+}
+
+/// Équipes types : rôle, apparence, skill de rôle livré quand il existe.
+/// Monter une équipe à la main, agent par agent, est la corvée qui décourage
+/// d'ouvrir un nouveau projet.
+const TEAMS: &[(&str, &str, &str, &[(&str, Archetype, Option<&str>)])] = &[
+    (
+        "developpement",
+        "Développement",
+        "developer",
+        &[
+            ("Tech Lead", Archetype::Lead, None),
+            ("Développeur Frontend", Archetype::Dev, Some("dev-front")),
+            ("Développeur Backend", Archetype::Backend, None),
+            ("Assurance qualité", Archetype::Qa, Some("qa")),
+        ],
+    ),
+    (
+        "contenu",
+        "Contenu",
+        "developer",
+        &[
+            ("Direction artistique", Archetype::Designer, None),
+            ("Motion designer", Archetype::Designer, None),
+            ("Rédaction", Archetype::Marketing, None),
+        ],
+    ),
+    (
+        "ops",
+        "Exploitation",
+        "read-only",
+        &[("Ingénieur système", Archetype::Ops, None), ("Supervision", Archetype::Ops, None)],
+    ),
+];
+
+/// Outils proposés selon le préréglage. Pouvoir demander un outil n'est pas
+/// le droit de s'en servir : les `Grant` restent seuls juges.
+fn tools_for(preset: &str) -> Vec<String> {
+    let list: &[&str] = match preset {
+        "read-only" => &["fs.read", "fs.list"],
+        _ => &["fs.read", "fs.list", "fs.write", "shell.exec"],
+    };
+    list.iter().map(|t| t.to_string()).collect()
 }

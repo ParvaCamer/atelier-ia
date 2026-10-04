@@ -20,7 +20,9 @@ pub mod workflow;
 
 pub use agent::{Activity, Agent, AgentSkill, AgentStatus, Archetype, SkillOrigin};
 pub use approval::Approval;
-pub use config::{AppSettings, HealthState, ModelRoute, ProviderConfig, ProviderHealth, RouteTest, ToolInfo};
+pub use config::{
+    AppSettings, HealthState, ModelRoute, ProviderConfig, ProviderHealth, RouteTest, TeamTemplate, ToolInfo,
+};
 pub use event::DomainEvent;
 pub use ids::*;
 pub use log::{LogLine, LogStream};

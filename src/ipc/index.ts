@@ -12,7 +12,7 @@ import type {
   Project, ProjectId, ProviderConfig, ProviderHealth, PtyId, RouteTest, Run, RunId, Task,
   TaskControl, TaskId, ToolInfo, Workflow, WorkflowId, WorldSnapshot,
   MemoryEntry, MemoryFilter, MemoryId, MemoryView, RunDetail, RunFilter, RunSummary,
-  Schedule, ScheduleId, WorkflowCheck, FileWatch, WatchId, CostSummary,
+  Schedule, ScheduleId, TeamTemplate, WorkflowCheck, FileWatch, WatchId, CostSummary,
 } from "./generated";
 
 export type GrantPresetName = "none" | "read-only" | "developer";
@@ -69,6 +69,9 @@ export const api = {
     invoke<Grant[]>("save_agent_grants", { agentId, grants }),
   grantPreset: (agentId: AgentId, preset: GrantPresetName) =>
     invoke<Grant[]>("grant_preset", { agentId, preset }),
+  teamTemplates: () => invoke<TeamTemplate[]>("team_templates"),
+  createTeam: (projectId: ProjectId, template: string) =>
+    invoke<Agent[]>("create_team", { projectId, template }),
   saveWorkflow: (workflow: Workflow) => invoke<Workflow>("save_workflow", { workflow }),
   checkWorkflow: (workflow: Workflow) => invoke<WorkflowCheck>("check_workflow", { workflow }),
   deleteWorkflow: (workflowId: WorkflowId) => invoke<void>("delete_workflow", { workflowId }),

@@ -58,6 +58,7 @@ export type { TaskControl } from "./TaskControl";
 export type { TaskDetail } from "./TaskDetail";
 export type { TaskId } from "./TaskId";
 export type { TaskStatus } from "./TaskStatus";
+export type { TeamTemplate } from "./TeamTemplate";
 export type { ToolCallId } from "./ToolCallId";
 export type { ToolCallRecord } from "./ToolCallRecord";
 export type { ToolInfo } from "./ToolInfo";

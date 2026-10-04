@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Project, ProjectId } from "../../ipc";
+import type { Project, ProjectId, TeamTemplate } from "../../ipc";
 import { api } from "../../ipc";
 import { isTauri } from "../../ipc/devMock";
 import { useConfig } from "../../state/config";
@@ -22,6 +22,11 @@ export function ProjectsPanel() {
   const [selected, setSelected] = useState<string | null>(focusId);
   const [draft, setDraft] = useState<Project | null>(null);
   const job = useJob();
+  const [teams, setTeams] = useState<TeamTemplate[]>([]);
+
+  useEffect(() => {
+    void api.teamTemplates().then(setTeams).catch(() => setTeams([]));
+  }, []);
 
   useEffect(() => {
     if (selected === "new") return;
@@ -97,6 +102,35 @@ export function ProjectsPanel() {
               </Field>
             )}
           </div>
+          {draft.id && !draft.archived && teams.length > 0 && (
+            <div className="teams">
+              <h3>Équipe type</h3>
+              <p className="field-hint">
+                Crée d'un coup les agents manquants, avec leur rôle, leurs outils, leurs permissions
+                et leur skill de métier. Les agents déjà présents ne sont pas touchés.
+              </p>
+              <div className="teams-row">
+                {teams.map((t) => (
+                  <button
+                    key={t.key}
+                    className="btn"
+                    disabled={job.busy}
+                    title={`${t.members.join(" · ")} — permissions : ${t.preset === "read-only" ? "lecture seule" : "développeur"}`}
+                    onClick={async () => {
+                      const made = await job.run(() => api.createTeam(draft.id, t.key));
+                      if (made) {
+                        job.setOk(`${made.length} agent(s) créé(s) : ${made.map((a) => a.name).join(", ")}`);
+                        await afterSave();
+                      }
+                    }}
+                  >
+                    + {t.label} <small>({t.members.length})</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="actions">
             <button className="btn primary" disabled={job.busy} onClick={save}>{draft.id ? "Enregistrer" : "Créer le projet"}</button>
             <Feedback error={job.error} ok={job.ok} />
