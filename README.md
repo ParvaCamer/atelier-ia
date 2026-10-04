@@ -88,8 +88,12 @@ src/
 | 2 | PTY réel, outils fs/shell, permissions appliquées, approbations, scheduler DAG, pause/stop/relance | ✅ |
 | 3 | Fournisseurs (Claude Code, Ollama), runtime d'agent, orchestrateur | ✅ |
 | 4 | Mémoire structurée (extraction filtrée), historique, planifications | ✅ |
+| V1 | Éditeur visuel de workflows (graphe de dépendances, diagnostic du moteur) | ✅ |
 
-Ce qui s'exécute aujourd'hui sans LLM : commandes directes confiées à un
-agent, et workflows dont les étapes portent des commandes explicites
-(ex. « Inspection du dépôt Spotly »). Les étapes rédigées en langage naturel
-échouent explicitement tant qu'aucun fournisseur IA n'est branché (phase 3).
+Ce qui s'exécute sans appeler un modèle : commandes directes confiées à un
+agent, et workflows dont les étapes portent des commandes explicites. Les
+étapes rédigées en langage naturel passent par Claude Code, et échouent
+explicitement si aucun fournisseur n'est joignable.
+
+Les consignes de travail pour un agent (invariants, commandes, limites en
+session cloud, pièges) sont dans **[CLAUDE.md](CLAUDE.md)**.
