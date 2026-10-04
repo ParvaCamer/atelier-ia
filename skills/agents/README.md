@@ -1,8 +1,9 @@
-# Skills d'agent
+# Skills de rôle
 
-Un fichier par rôle d'agent d'Atelier (`<role>.md`), décrivant son métier :
-expertise, méthode, limites, format de compte rendu.
+Un fichier par **rôle** d'agent (`<role>.md`) : le métier, partagé par tous
+les projets — expertise, méthode, limites, format de compte rendu. Les
+spécificités d'un agent précis vont dans sa surcouche, pas ici.
 
-Voir la règle dans [CLAUDE.md](../../CLAUDE.md#skills-dagent--un-par-rôle).
-Le chargement par le moteur reste à implémenter : ces fichiers sont pour
-l'instant le contrat écrit, pas encore la source lue à l'exécution.
+La règle complète est dans [CLAUDE.md](../../CLAUDE.md). Le stockage, la
+génération du brouillon et l'injection par le moteur restent à implémenter :
+ces fichiers sont le contrat écrit, pas encore la source lue à l'exécution.

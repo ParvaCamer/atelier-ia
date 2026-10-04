@@ -66,28 +66,40 @@ pnpm tauri dev             # vraie application — macOS uniquement ici
 
 ## Skills d'agent — un par rôle
 
-Atelier est une application d'orchestration : **chaque rôle d'agent a son
-propre skill**, dans `skills/agents/<role>.md`. Le skill décrit l'expertise
-du rôle, sa méthode, ce qu'il refuse de faire et comment il rend compte.
-C'est la source de vérité du comportement d'un agent — pas un prompt
-recopié dans la base, pas une consigne noyée dans le code.
+Atelier est une application d'orchestration : **le comportement d'un agent
+est défini par un skill, pas par un prompt recopié ni par une consigne
+noyée dans le code.**
 
-Règles :
+**Deux niveaux, jamais mélangés :**
 
-- **Un rôle, un fichier.** Créer ou modifier un rôle d'agent implique de
-  créer ou modifier son skill dans le même changement.
-- Le fichier est en français, structuré : rôle, périmètre, méthode,
-  limites, format de compte rendu.
-- Le skill décrit un **métier**, jamais un projet précis : le contexte
-  projet vient de la mémoire et de la tâche, pas du skill.
-- Les outils et permissions restent décidés par les règles de permission
-  du moteur. Un skill ne s'accorde aucun droit.
+- **Le skill de rôle** — le métier (QA, Dev Front, Ops, Marketing…),
+  partagé par tous les projets. Les rôles livrés avec l'application vivent
+  dans `skills/agents/<role>.md`, versionnés ici.
+- **La surcouche d'agent** — quelques lignes propres à un agent précis.
+  Elle ne redit pas le métier.
 
-**État actuel : le chargement de ces skills par le moteur n'est pas encore
-implémenté.** Les agents portent aujourd'hui un `system_prompt` et une
-liste de `skills` (simples étiquettes) en base. Tant que le chargement
-n'existe pas, écrire quand même le skill du rôle : c'est le contrat visé,
-et la reprise en sera directe.
+Un même métier n'est donc jamais dupliqué entre projets : « QA Spotly » et
+« QA Agency » partagent le skill de rôle et ne diffèrent que par leur
+surcouche.
+
+**Production d'un skill : brouillon proposé, validé par l'utilisateur.**
+À la création d'un agent, le moteur génère un brouillon à partir du rôle,
+l'affiche dans les réglages, et l'utilisateur l'enregistre après relecture.
+Un appel au modèle par création, jamais pendant le travail.
+
+**Un agent ne réécrit jamais son propre skill.** Un contrat de
+comportement qui change pendant l'exécution rend les tâches passées
+inexplicables : on ne sait plus avec quelles consignes elles ont tourné.
+La modification est un acte humain, visible, enregistré.
+
+Les permissions restent du ressort du moteur : **un skill n'accorde aucun
+droit**, il décrit une méthode.
+
+**État actuel : rien de tout ça n'est implémenté.** Les agents portent un
+`system_prompt` et une liste d'étiquettes `skills` en base. Le stockage,
+la génération du brouillon et l'injection au lancement d'une tâche restent
+à écrire. Écrire quand même les skills de rôle dans `skills/agents/` :
+c'est le contrat visé.
 
 ## Style
 
