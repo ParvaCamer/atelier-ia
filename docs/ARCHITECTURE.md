@@ -433,6 +433,18 @@ destination, `AgentLayer.ts` pour le mouvement) :
 | `ERROR` | posture affaissée, tête rouge qui pulse |
 | `COMPLETED` | petit saut avec un tour sur soi, bras levés, puis retour au repos |
 
+**Deux vues** (`WorldRenderer.setMode`) : la vue aérienne (orbite, zoom,
+déplacement) et la promenade « à pied » (`Visitor.ts`) — l'utilisateur
+devient un personnage, caméra à la troisième personne ; touches par
+position physique (ZQSD en AZERTY = WASD en QWERTY), Maj pour courir, `V`
+pour basculer, Échap pour remonter. Mêmes collisions que les agents ; on
+descend des plateformes pour passer d'une zone à l'autre ; s'approcher
+d'un agent affiche sa fiche. Purement visuel : le moteur n'en sait rien.
+
+Équipements de décor (`furniture.ts`) : silos, conteneur, caisses,
+tuyauterie, générateur, projecteurs, posés par le plan dans les espaces
+libres et comptés comme obstacles. Une `InstancedMesh` par pièce.
+
 Déplacements (`src/world/nav.ts`, fonctions pures) : chaque meuble a une
 emprise au sol ; un agent dont la ligne droite traverse un meuble passe par
 le coin le plus avantageux, deux agents qui se croisent s'écartent, aucun

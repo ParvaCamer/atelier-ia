@@ -14,6 +14,8 @@ import { useHistory } from "../state/history";
 import { useWorld } from "../state/store";
 import { AgentLayer } from "./AgentLayer";
 import { HandoffLayer } from "./HandoffLayer";
+import { Visitor, type WalkInput } from "./Visitor";
+import type { Box } from "./nav";
 import { SceneryLayer, makeGrid, makeGround } from "./SceneryLayer";
 import { buildLayout, type ZoneLayout } from "./layout";
 import { GROUND } from "./palette";
@@ -30,10 +32,21 @@ interface Orbit {
   phi: number;
 }
 
+export type ViewMode = "aerial" | "walk";
+
 export interface WorldOptions {
   onPick: (agentId: string | null) => void;
   onHover: (agentId: string | null) => void;
+  onModeChange?: (mode: ViewMode) => void;
 }
+
+/** Touches de déplacement, par position physique : ZQSD en AZERTY = WASD en QWERTY. */
+const MOVE_KEYS: Record<string, [forward: number, right: number]> = {
+  KeyW: [1, 0], ArrowUp: [1, 0], KeyS: [-1, 0], ArrowDown: [-1, 0],
+  KeyA: [0, -1], ArrowLeft: [0, -1], KeyD: [0, 1], ArrowRight: [0, 1],
+};
+/** Distance à laquelle un agent montre sa fiche quand on s'approche à pied. */
+const NEAR_AGENT = 2.2;
 
 export class WorldRenderer {
   private renderer: WebGLRenderer;
@@ -41,6 +54,14 @@ export class WorldRenderer {
   private camera: PerspectiveCamera;
   private agents: AgentLayer;
   private handoffs: HandoffLayer;
+  private visitor = new Visitor();
+  private mode: ViewMode = "aerial";
+  private keys = new Set<string>();
+  private nearAgent: string | null = null;
+  /** Obstacles et sols de toutes les zones, recalculés avec le décor. */
+  private obstacles: Box[] = [];
+  private platforms: Box[] = [];
+  private limits: Box = { minX: -60, maxX: 60, minZ: -60, maxZ: 60 };
   private scenery: SceneryLayer;
   private zones = new Map<string, ZoneLayout>();
 
@@ -103,6 +124,7 @@ export class WorldRenderer {
 
     this.agents = new AgentLayer(this.scene);
     this.handoffs = new HandoffLayer(this.scene);
+    this.scene.add(this.visitor.group);
     this.scenery = new SceneryLayer(this.scene);
 
     // Poignée de mise au point : inspecter la scène, compter les draw calls
@@ -136,7 +158,18 @@ export class WorldRenderer {
         byProject.set(a.projectId, list);
       }
       this.scenery.build([...this.zones.values()], byProject);
-      this.frameAll();
+      const zones = [...this.zones.values()];
+      this.obstacles = zones.flatMap((z) => z.obstacles);
+      this.platforms = zones.map(({ project: { zone } }) => ({
+        minX: zone.x - zone.width / 2, maxX: zone.x + zone.width / 2, minZ: zone.z - zone.depth / 2, maxZ: zone.z + zone.depth / 2,
+      }));
+      // On peut marcher entre les zones, pas partir dans le vide.
+      const margin = 14;
+      this.limits = {
+        minX: Math.min(...this.platforms.map((p) => p.minX)) - margin, maxX: Math.max(...this.platforms.map((p) => p.maxX)) + margin,
+        minZ: Math.min(...this.platforms.map((p) => p.minZ)) - margin, maxZ: Math.max(...this.platforms.map((p) => p.maxZ)) + margin,
+      };
+      if (this.mode === "aerial") this.frameAll();
     };
 
     rebuild();
@@ -147,8 +180,63 @@ export class WorldRenderer {
     );
   }
 
+  // ---------------------------------------------------------------
+  // Vue aérienne / à pied
+  // ---------------------------------------------------------------
+
+  getMode(): ViewMode {
+    return this.mode;
+  }
+
+  /**
+   * « À pied » : un personnage apparaît au centre de la vue aérienne, la
+   * caméra se place derrière lui. Retour en vue aérienne : la caméra
+   * reprend de haut, centrée sur l'endroit où l'on s'est promené.
+   */
+  setMode(mode: ViewMode) {
+    if (mode === this.mode) return;
+    this.mode = mode;
+    this.keys.clear();
+    if (mode === "walk") {
+      const at = this.desired.target.clone();
+      at.y = 0;
+      this.visitor.spawn(at, this.orbit.theta);
+      this.agents.setVisitor(this.visitor.pos);
+    } else {
+      this.visitor.hide();
+      this.agents.setVisitor(null);
+      this.desired.target.set(this.visitor.pos.x, 0, this.visitor.pos.z);
+      this.desired.theta = this.visitor.yaw;
+      this.desired.radius = 26;
+      this.desired.phi = Math.PI * 0.36;
+      // Reprise en douceur depuis la position de la caméra à pied.
+      this.orbit.target.copy(this.desired.target);
+      this.orbit.theta = this.visitor.yaw;
+      this.orbit.radius = Math.max(MIN_RADIUS, this.visitor.distance);
+      this.orbit.phi = clamp(Math.PI / 2 - this.visitor.pitch, 0.12, Math.PI * 0.47);
+      this.setNear(null);
+    }
+    this.opts.onModeChange?.(mode);
+  }
+
+  private setNear(id: string | null) {
+    if (id === this.nearAgent) return;
+    this.nearAgent = id;
+    this.opts.onHover(id);
+  }
+
+  private walkInput(): WalkInput {
+    let forward = 0, right = 0;
+    for (const k of this.keys) {
+      const m = MOVE_KEYS[k];
+      if (m) { forward += m[0]; right += m[1]; }
+    }
+    return { forward: clamp(forward, -1, 1), right: clamp(right, -1, 1), run: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") };
+  }
+
   /** Cadre l'ensemble des zones — vue d'accueil. */
   frameAll() {
+    this.setMode("aerial");
     const projects = useWorld.getState().projects;
     if (!projects.length) return;
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
@@ -169,6 +257,7 @@ export class WorldRenderer {
   focusProject(projectId: string) {
     const zone = this.zones.get(projectId);
     if (!zone) return;
+    this.setMode("aerial");
     this.desired.target.copy(zone.center);
     this.desired.radius = 26;
     this.desired.phi = Math.PI * 0.36;
@@ -233,7 +322,9 @@ export class WorldRenderer {
         lastX = e.clientX;
         lastY = e.clientY;
 
-        if (panning) {
+        if (this.mode === "walk") {
+          this.visitor.turn(dx, dy);
+        } else if (panning) {
           // Déplacement dans le plan du sol, indépendant de l'inclinaison.
           const scale = this.desired.radius * 0.0016;
           const right = new Vector3(Math.cos(this.orbit.theta), 0, -Math.sin(this.orbit.theta));
@@ -269,13 +360,52 @@ export class WorldRenderer {
       (e) => {
         e.preventDefault();
         const factor = Math.exp(e.deltaY * 0.0014);
-        this.desired.radius = clamp(this.desired.radius * factor, MIN_RADIUS, MAX_RADIUS);
+        if (this.mode === "walk") this.visitor.zoom(factor);
+        else this.desired.radius = clamp(this.desired.radius * factor, MIN_RADIUS, MAX_RADIUS);
       },
       { passive: false },
     );
 
     window.addEventListener("resize", this.resize);
+    window.addEventListener("keydown", this.onKeyDown);
+    window.addEventListener("keyup", this.onKeyUp);
+    // Fenêtre qui perd le focus : une touche relâchée ailleurs ne doit pas
+    // faire marcher le personnage indéfiniment.
+    window.addEventListener("blur", this.onBlur);
   }
+
+  /** Le clavier n'appartient au monde que hors des champs et des panneaux. */
+  private keyboardIsOurs(e: KeyboardEvent): boolean {
+    const el = e.target as HTMLElement | null;
+    if (el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable)) return false;
+    return !useConfig.getState().open && !useHistory.getState().open;
+  }
+
+  private onKeyDown = (e: KeyboardEvent) => {
+    if (!this.keyboardIsOurs(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+    // V : bascule entre la vue aérienne et la promenade.
+    if (e.code === "KeyV" && !e.repeat) {
+      this.setMode(this.mode === "walk" ? "aerial" : "walk");
+      return;
+    }
+    if (this.mode !== "walk") return;
+    if (e.key === "Escape") {
+      this.setMode("aerial");
+      return;
+    }
+    if (MOVE_KEYS[e.code] || e.code.startsWith("Shift")) {
+      e.preventDefault();
+      this.keys.add(e.code);
+    }
+  };
+
+  private onKeyUp = (e: KeyboardEvent) => {
+    this.keys.delete(e.code);
+  };
+
+  private onBlur = () => {
+    this.keys.clear();
+  };
 
   private pickAt(): string | null {
     this.raycaster.setFromCamera(this.pointer, this.camera);
@@ -308,7 +438,8 @@ export class WorldRenderer {
       // pulse) : 10 images par seconde suffisent à la respiration des
       // agents, et le portable ne chauffe pas pour une scène immobile.
       const ticked = useWorld.getState().snapshot.tick !== this.lastTick;
-      if (!this.lively && !ticked && !this.cameraMoving() && now - this.lastFrame < IDLE_FRAME_MS) return;
+      const walking = this.mode === "walk" && this.keys.size > 0;
+      if (!this.lively && !walking && !ticked && !this.cameraMoving() && now - this.lastFrame < IDLE_FRAME_MS) return;
       this.lastFrame = now;
 
       const dt = Math.min((now - this.last) / 1000 || 0, 0.1);
@@ -316,11 +447,18 @@ export class WorldRenderer {
       this.elapsed += dt;
 
       this.pullSnapshot();
-      this.updateCamera(dt);
+      let visitorMoving = false;
+      if (this.mode === "walk") {
+        visitorMoving = this.visitor.update(dt, this.walkInput(), this.obstacles, this.platforms, this.agents.positions(), this.limits);
+        this.visitor.placeCamera(this.camera, dt);
+        this.setNear(this.agents.nearest(this.visitor.pos, NEAR_AGENT));
+      } else {
+        this.updateCamera(dt);
+      }
       const agentsMoving = this.agents.update(dt, this.elapsed, this.camera.position);
       const relays = useWorld.getState().relays;
       const relaying = relays.some((r) => now - r.at < 3000);
-      this.lively = agentsMoving || relaying;
+      this.lively = agentsMoving || relaying || visitorMoving;
       this.handoffs.update(useWorld.getState().relays, now, (id, out) => this.agents.positionOf(id, out));
       this.scenery.updateScreens(
         (id) => this.agents.isAtDesk(id),
@@ -361,6 +499,7 @@ export class WorldRenderer {
 
   /** La caméra n'a pas encore rejoint sa consigne (glissement, zoom, cadrage). */
   private cameraMoving(): boolean {
+    if (this.mode === "walk") return false;
     const o = this.orbit, d = this.desired;
     return Math.abs(o.radius - d.radius) > 0.01 || Math.abs(o.theta - d.theta) > 1e-4
       || Math.abs(o.phi - d.phi) > 1e-4 || o.target.distanceToSquared(d.target) > 1e-4;
@@ -400,6 +539,9 @@ export class WorldRenderer {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     window.removeEventListener("resize", this.resize);
+    window.removeEventListener("keydown", this.onKeyDown);
+    window.removeEventListener("keyup", this.onKeyUp);
+    window.removeEventListener("blur", this.onBlur);
     this.unsubscribe.forEach((fn) => fn());
     this.agents.dispose();
     this.handoffs.dispose();

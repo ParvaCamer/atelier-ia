@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useWorld } from "../state/store";
-import { WorldRenderer } from "../world/WorldRenderer";
+import { WorldRenderer, type ViewMode } from "../world/WorldRenderer";
 import { worldHandle } from "../world/handle";
 import { AgentPopover } from "./AgentPopover";
 import { Approvals, NoticeToast } from "./Approvals";
@@ -15,6 +15,7 @@ export function WorldCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [world, setWorld] = useState<WorldRenderer | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
+  const [mode, setMode] = useState<ViewMode>("aerial");
 
   const select = useWorld((s) => s.select);
   const setLogFilter = useWorld((s) => s.setLogFilter);
@@ -34,6 +35,7 @@ export function WorldCanvas() {
         if (id) setLogFilter({ kind: "agent", id });
       },
       onHover: setHovered,
+      onModeChange: setMode,
     });
     setWorld(renderer);
     worldHandle.set(renderer);
@@ -68,8 +70,14 @@ export function WorldCanvas() {
       )}
       <Approvals />
       <NoticeToast />
+      <div className="view-switch" role="group" aria-label="Vue du monde">
+        <button data-active={mode === "aerial"} onClick={() => world?.setMode("aerial")} title="Vue d'ensemble, de haut (V)">Vue aérienne</button>
+        <button data-active={mode === "walk"} onClick={() => world?.setMode("walk")} title="Se promener dans les bureaux (V)">À pied</button>
+      </div>
       <div className="stage-hint">
-        glisser : pivoter · molette : zoom · maj + glisser : déplacer · clic : sélectionner
+        {mode === "walk"
+          ? "ZQSD / WASD ou flèches : marcher · maj : courir · glisser : regarder autour · molette : recul · approche-toi d'un agent pour voir sa fiche · échap : vue aérienne"
+          : "glisser : pivoter · molette : zoom · maj + glisser : déplacer · clic : sélectionner · V : se promener"}
       </div>
     </div>
   );

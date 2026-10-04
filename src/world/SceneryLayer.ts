@@ -11,6 +11,7 @@ import {
   Mesh, MeshBasicMaterial, MeshLambertMaterial, Object3D, Scene, Sprite, SpriteMaterial,
 } from "three";
 import { GRID, PLATFORM, PROP, PROP_DARK } from "./palette";
+import { FURNITURE, LIGHT_OFF } from "./furniture";
 import { labelTexture, props } from "./parts";
 import type { ZoneLayout } from "./layout";
 
@@ -20,6 +21,8 @@ export class SceneryLayer {
   private readonly group = new Group();
   private readonly dummy = new Object3D();
   private screens: InstancedMesh | null = null;
+  /** Voyants et projecteurs, allumés selon l'heure. */
+  private lights: InstancedMesh[] = [];
   private deskOwners: string[] = [];
 
   constructor(private readonly scene: Scene) {
@@ -108,13 +111,39 @@ export class SceneryLayer {
       this.group.add(this.zoneLabel(zone));
     });
 
-    for (const m of [platforms, rims, deskTops, deskLegs, monitors, screens, racks, rackLights, benches, cabinets, drawers]) {
+    const decor = this.furnish(zones);
+
+    for (const m of [platforms, rims, deskTops, deskLegs, monitors, screens, racks, rackLights, benches, cabinets, drawers, ...decor]) {
       m.frustumCulled = false;
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
       this.group.add(m);
     }
     this.screens = screens;
+  }
+
+  /** Une `InstancedMesh` par pièce de mobilier, toutes zones confondues. */
+  private furnish(zones: ZoneLayout[]): InstancedMesh[] {
+    return FURNITURE.map((piece) => {
+      const spots = zones.flatMap((zone) => zone.furniture.filter((f) => f.kind === piece.kind).map((f) => ({ f, zone })));
+      const material = piece.flat ? new MeshBasicMaterial({}) : new MeshLambertMaterial({});
+      const mesh = new InstancedMesh(piece.geometry, material, Math.max(1, spots.length));
+      mesh.count = spots.length;
+      spots.forEach(({ f, zone }, i) => {
+        this.dummy.position.set(f.x, 0, f.z);
+        this.dummy.rotation.set(0, f.rot, 0);
+        this.dummy.scale.set(1, 1, 1);
+        this.dummy.updateMatrix();
+        mesh.setMatrixAt(i, this.dummy.matrix);
+        const tint = piece.tint;
+        const color = tint === "light"
+          ? LIGHT_OFF
+          : "fixed" in tint ? tint.fixed : new Color(zone.project.color).multiplyScalar(tint.accent);
+        mesh.setColorAt(i, color);
+      });
+      if (piece.tint === "light") this.lights.push(mesh);
+      return mesh;
+    });
   }
 
   private place(
@@ -183,6 +212,15 @@ export class SceneryLayer {
       this.group.remove(child);
     }
     this.screens = null;
+    this.lights = [];
+  }
+
+  /** Allume (1) ou éteint (0) les lumières des équipements. */
+  setLights(color: Color) {
+    for (const m of this.lights) {
+      for (let i = 0; i < m.count; i++) m.setColorAt(i, color);
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    }
   }
 
   dispose() {

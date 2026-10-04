@@ -68,6 +68,8 @@ export class AgentLayer {
   private order: string[] = [];
   private clock = 0;
   private readonly camera = new Vector3();
+  /** Personnage de l'utilisateur en mode « à pied » : les agents s'écartent. */
+  private visitor: Vector3 | null = null;
 
   private readonly base: InstancedMesh;
   private readonly body: InstancedMesh;
@@ -264,6 +266,26 @@ export class AgentLayer {
     node.heading += delta * Math.min(1, TURN_SPEED * dt);
   }
 
+  setVisitor(pos: Vector3 | null) {
+    this.visitor = pos;
+  }
+
+  /** Positions des agents, pour que le visiteur ne les traverse pas. */
+  positions(): Vector3[] {
+    return [...this.nodes.values()].map((n) => n.pos);
+  }
+
+  /** Agent le plus proche d'un point, dans un rayon donné. */
+  nearest(p: Vector3, radius: number): string | null {
+    let best: string | null = null;
+    let bestD = radius;
+    for (const n of this.nodes.values()) {
+      const d = Math.hypot(n.pos.x - p.x, n.pos.z - p.z);
+      if (d < bestD) { bestD = d; best = n.id; }
+    }
+    return best;
+  }
+
   /** Il demande ta validation : il se tourne vers toi. */
   private towardCamera(node: Node) {
     return Math.atan2(this.camera.x - node.pos.x, this.camera.z - node.pos.z);
@@ -274,6 +296,19 @@ export class AgentLayer {
    * traverser, sans jamais être poussés dans un meuble ni hors de la zone.
    */
   private separate(node: Node, dt: number) {
+    // On s'écarte du visiteur même à l'arrêt : il ne doit jamais passer au travers.
+    const v = this.visitor;
+    if (v) {
+      const dx = node.pos.x - v.x, dz = node.pos.z - v.z;
+      const d = Math.hypot(dx, dz);
+      const min = AGENT_RADIUS * 2.2;
+      if (d > 1e-4 && d < min) {
+        node.pos.x += (dx / d) * (min - d) * Math.min(1, dt * 8);
+        node.pos.z += (dz / d) * (min - d) * Math.min(1, dt * 8);
+        for (const b of node.zone.obstacles) pushOut(b, node.pos);
+        clampTo(node.zone.bounds, node.pos);
+      }
+    }
     if (node.motion < 0.02) return;
     for (const other of this.nodes.values()) {
       if (other === node || other.zone !== node.zone) continue;

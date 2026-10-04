@@ -26,6 +26,17 @@ export interface Spot {
   facing: number;
 }
 
+/** Équipement de décor : posé par le plan, dessiné par `SceneryLayer`. */
+export type FurnitureKind = "silo" | "container" | "crates" | "pipes" | "generator" | "lamp";
+
+export interface Furniture {
+  kind: FurnitureKind;
+  x: number;
+  z: number;
+  /** Rotation autour de la verticale ; à 0, la façade regarde vers +z. */
+  rot: number;
+}
+
 export interface ZoneLayout {
   project: Project;
   center: Vector3;
@@ -34,6 +45,7 @@ export interface ZoneLayout {
   bench: Vector3;
   slots: Map<string, Slot>;
   deskTransforms: { position: Vector3; rotation: number }[];
+  furniture: Furniture[];
   /** Emprise au sol du mobilier, gonflée de la carrure d'un agent. */
   obstacles: Box[];
   /** Limites praticables de la plateforme. */
@@ -87,6 +99,13 @@ export function buildLayout(projects: Project[], agents: Agent[]): Map<string, Z
     const cabinet = new Vector3(x + width / 2 - 2.4, 0, z - depth / 2 + 2.4);
     const bench = new Vector3(x + width / 2 - 2.6, 0, z + depth / 2 - 3.0);
     obstacles.push(box(rack.x, rack.z, 1.2, 0.9), box(cabinet.x, cabinet.z, 1.6, 0.6), box(bench.x, bench.z, 2.6, 0.7));
+    const furniture = furnish(x, z, width, depth);
+    for (const f of furniture) {
+      const size = FOOTPRINT[f.kind];
+      // Un quart de tour échange largeur et profondeur.
+      const turned = Math.abs(Math.sin(f.rot)) > 0.5;
+      obstacles.push(box(f.x, f.z, turned ? size[1] : size[0], turned ? size[0] : size[1]));
+    }
 
     out.set(project.id, {
       project,
@@ -96,12 +115,47 @@ export function buildLayout(projects: Project[], agents: Agent[]): Map<string, Z
       bench,
       slots,
       deskTransforms,
+      furniture,
       obstacles,
       bounds: box(x, z, width, depth, -0.6),
     });
   }
 
   return out;
+}
+
+/** Emprise (largeur, profondeur) des équipements, à rotation nulle. */
+const FOOTPRINT: Record<FurnitureKind, [number, number]> = {
+  silo: [2.2, 2.2],
+  container: [4.6, 1.9],
+  crates: [2.2, 1.4],
+  pipes: [11, 0.7],
+  generator: [2.6, 1.8],
+  lamp: [0.5, 0.5],
+};
+
+/**
+ * Équipements d'une zone, dans les espaces que les postes laissent libres :
+ * silos au fond à gauche, conteneur et caisses sur les côtés, tuyauterie le
+ * long du fond, générateur devant, projecteurs dans les coins. Les postes
+ * occupent le centre (trois colonnes de 6,2 m au plus) ; la baie, l'armoire
+ * et le banc, les angles restants.
+ */
+function furnish(x: number, z: number, w: number, d: number): Furniture[] {
+  const left = x - w / 2, right = x + w / 2, back = z - d / 2, front = z + d / 2;
+  const f = (kind: FurnitureKind, fx: number, fz: number, rot = 0): Furniture => ({ kind, x: fx, z: fz, rot });
+  return [
+    f("silo", left + 2.2, back + 2.2),
+    f("silo", left + 4.7, back + 2.2),
+    f("pipes", x, back + 0.55),
+    f("container", left + 1.3, z + 0.6, Math.PI / 2),
+    f("crates", right - 1.0, z + 0.8, -Math.PI / 2),
+    f("generator", x - 2.4, front - 1.6, Math.PI),
+    f("lamp", left + 0.7, front - 0.7),
+    f("lamp", right - 0.7, back + 0.7),
+    f("lamp", x + 1.6, front - 0.7),
+    f("lamp", right - 0.7, z + 3.4),
+  ];
 }
 
 /**
