@@ -53,6 +53,13 @@ button {
   cursor: pointer;
 }
 
+/* Focus visible au clavier, jamais à la souris : un contour net sur tout
+   ce qui se commande, y compris les champs (dont la bordure seule était
+   trop discrète). */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.input:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(94, 234, 212, 0.55); }
+button:focus:not(:focus-visible) { outline: none; }
+
 /* ---------------------------------- structure ---------------------------------- */
 
 .app {
@@ -581,6 +588,8 @@ select.input { appearance: none; padding-right: 22px; background-image: linear-g
 .feedback[data-kind="ok"] { color: var(--ok); }
 .feedback.inline { padding: 4px 2px 0; }
 .unsaved { font-size: 11.5px; color: var(--warn); }
+.unsaved-guard { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid rgba(251, 191, 36, 0.45); border-radius: 8px; font-size: 11.5px; line-height: 1.4; color: var(--warn); }
+.unsaved-guard .btn { align-self: stretch; }
 .note { font-size: 12px; color: var(--text-faint); line-height: 1.5; margin: 8px 0 12px; max-width: 760px; }
 .note code, .check code { font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); }
 
@@ -661,16 +670,18 @@ select.input { appearance: none; padding-right: 22px; background-image: linear-g
    tableau défile horizontalement au lieu d'écraser une colonne à zéro. */
 .routes, .grants-table { overflow-x: auto; padding-bottom: 4px; }
 
+/* Minimums calculés pour tenir sans défilement dans une fenêtre de 1 100 px
+   (zone de détail ≈ 540 px pour les permissions, ≈ 820 px pour les routes). */
 .route {
   grid-template-columns:
-    minmax(150px, 1.1fr) minmax(150px, 1fr) minmax(140px, 1fr)
-    minmax(140px, 1fr) 84px minmax(150px, auto);
-  min-width: 860px;
+    minmax(130px, 1.1fr) minmax(130px, 1fr) minmax(120px, 1fr)
+    minmax(120px, 1fr) 76px minmax(110px, auto);
+  min-width: 720px;
 }
 
 .grants-row {
-  grid-template-columns: 120px 115px minmax(200px, 1fr) 110px 28px;
-  min-width: 600px;
+  grid-template-columns: 108px 100px minmax(120px, 1fr) 100px 28px;
+  min-width: 480px;
 }
 
 .toggle { text-align: left; }

@@ -3,6 +3,7 @@ import type { Workflow, WorkflowCheck, WorkflowId, WorkflowStep } from "../../ip
 import { api } from "../../ipc";
 import { useConfig } from "../../state/config";
 import { useWorld } from "../../state/store";
+import { useUnsavedFlag } from "../../state/unsaved";
 import { keyFollowsTitle, removeStep, renameKey, slug, uniqueKey } from "../workflow/graph";
 import { StepInspector } from "../workflow/StepInspector";
 import { WorkflowGraph } from "../workflow/WorkflowGraph";
@@ -33,6 +34,7 @@ export function WorkflowsPanel() {
   const [step, setStep] = useState<number | null>(0);
   const [check, setCheck] = useState<WorkflowCheck | null>(null);
   const job = useJob();
+  useUnsavedFlag("workflow", dirty);
 
   useEffect(() => {
     if (selected === "new") return;

@@ -8,6 +8,7 @@ import { api } from "../../ipc";
 import { useConfig } from "../../state/config";
 import { useHistory } from "../../state/history";
 import { useWorld } from "../../state/store";
+import { same, useUnsavedFlag } from "../../state/unsaved";
 import { Area, DangerButton, Feedback, Field, Select, Text, Toggle, useJob } from "./fields";
 
 type Freq =
@@ -61,12 +62,14 @@ export function SchedulesPanel() {
   const [draft, setDraft] = useState<Schedule | null>(null);
   const [watches, setWatches] = useState<FileWatch[]>([]);
   const [watchDraft, setWatchDraft] = useState<FileWatch | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const job = useJob();
 
   const load = async () => {
     const [list, ws] = await Promise.all([job.run(() => api.listSchedules()), job.run(() => api.listWatches())]);
     if (list) setItems(list);
     if (ws) setWatches(ws);
+    setLoaded(true);
     return list ?? [];
   };
 
@@ -146,6 +149,7 @@ export function SchedulesPanel() {
         <WatchEditor
           key={watchDraft.id || "new"}
           draft={watchDraft}
+          original={watches.find((w) => w.id === watchDraft.id)}
           onChange={setWatchDraft}
           onSaved={async (saved) => { await load(); setSelected(`watch:${saved.id}`); }}
           onDeleted={async () => { await load(); setSelected(null); setWatchDraft(null); }}
@@ -154,6 +158,7 @@ export function SchedulesPanel() {
         <ScheduleEditor
           key={draft.id || "new"}
           draft={draft}
+          original={items.find((x) => x.id === draft.id)}
           onChange={setDraft}
           projects={projects}
           onSaved={async (saved) => { await load(); setSelected(saved.id); }}
@@ -161,7 +166,9 @@ export function SchedulesPanel() {
         />
       ) : (
         <section className="split-detail empty">
-          Aucune planification. Exemple : « tous les lundis à 9 h, lancer Release Spotly ».
+          {!loaded ? "Chargement…" : items.length || watches.length
+            ? "Sélectionne une planification ou une surveillance."
+            : "Aucune planification. Exemple : « tous les lundis à 9 h, lancer Release Spotly »."}
           <Feedback error={job.error} ok={null} />
         </section>
       )}
@@ -169,8 +176,10 @@ export function SchedulesPanel() {
   );
 }
 
-function ScheduleEditor({ draft, onChange, projects, onSaved, onDeleted }: {
+function ScheduleEditor({ draft, original, onChange, projects, onSaved, onDeleted }: {
   draft: Schedule;
+  /** Version enregistrée, pour savoir s'il reste des modifications. */
+  original?: Schedule;
   onChange: (s: Schedule) => void;
   projects: { id: ProjectId; name: string }[];
   onSaved: (s: Schedule) => void;
@@ -179,6 +188,7 @@ function ScheduleEditor({ draft, onChange, projects, onSaved, onDeleted }: {
   const workflows = useWorld((s) => s.workflows);
   const allProjects = useWorld((s) => s.projects);
   const [freq, setFreq] = useState<Freq>(() => fromCron(draft.cron));
+  useUnsavedFlag("schedule", original ? !same(draft, original) : !!draft.name.trim());
   const [preview, setPreview] = useState<string[]>([]);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const job = useJob();
@@ -339,8 +349,9 @@ function ScheduleEditor({ draft, onChange, projects, onSaved, onDeleted }: {
 
 const OUTCOME: Record<string, string> = { launched: "lancée", skipped: "ignorée", error: "en erreur" };
 
-function WatchEditor({ draft, onChange, onSaved, onDeleted }: {
+function WatchEditor({ draft, original, onChange, onSaved, onDeleted }: {
   draft: FileWatch;
+  original?: FileWatch;
   onChange: (w: FileWatch) => void;
   onSaved: (w: FileWatch) => void;
   onDeleted: () => void;
@@ -351,6 +362,7 @@ function WatchEditor({ draft, onChange, onSaved, onDeleted }: {
   // pris en charge, mais un nom de fichier peut en avoir une).
   const [patterns, setPatterns] = useState(draft.patterns.join("\n"));
   const job = useJob();
+  useUnsavedFlag("watch", (original ? !same(draft, original) : !!draft.name.trim()) || patterns !== (original?.patterns ?? draft.patterns).join("\n"));
   const patch = (p: Partial<FileWatch>) => onChange({ ...draft, ...p });
   const wf = workflows.find((w) => w.id === draft.workflowId);
   const project = projects.find((p) => p.id === wf?.projectId);
@@ -358,7 +370,7 @@ function WatchEditor({ draft, onChange, onSaved, onDeleted }: {
   const save = async () => {
     const watch = { ...draft, patterns: patterns.split("\n") };
     const saved = await job.run(() => api.saveWatch(watch), draft.id ? "Surveillance enregistrée." : "Surveillance créée : le premier passage relève l'état actuel, sans rien lancer.");
-    if (saved) onSaved(saved);
+    if (saved) { setPatterns(saved.patterns.join("\n")); onSaved(saved); }
   };
 
   const remove = async () => {

@@ -33,6 +33,7 @@ cargo test --workspace     # moteur, persistance, permissions (~130 tests)
 pnpm typecheck             # frontend
 pnpm bindings              # régénère src/ipc/generated depuis les types Rust
 pnpm dev                   # harnais navigateur, sans Rust : http://localhost:1420
+node scripts/audit-interface.mjs   # audit mesuré de l'interface (harnais lancé)
 pnpm tauri dev             # vraie application — macOS uniquement ici
 ```
 

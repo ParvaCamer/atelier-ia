@@ -31,6 +31,19 @@ mode démo — il n'est jamais actif dans l'application réelle.
 4. Tester la fenêtre étroite (~1100 px) : l'en-tête et les tableaux de
    réglages ont déjà débordé par le passé.
 
+## Audit automatique
+
+```bash
+node scripts/audit-interface.mjs     # pendant que `pnpm dev` tourne
+```
+
+Mesure chaque écran à 1 100 px (débordements, tableaux qui défilent,
+boutons d'icône sans libellé), le focus clavier, et vérifie qu'Échap ne
+ferme jamais les réglages en perdant une saisie. Code de sortie 1 au
+premier écart. Playwright est cherché dans le `NODE_PATH` (installation
+globale). Un nouvel éditeur de réglages doit déclarer ses modifications
+avec `useUnsavedFlag` (`src/state/unsaved.ts`).
+
 ## Ce que le harnais ne prouve pas
 
 - Le terminal interactif (xterm sur PTY réel) : absent hors Tauri.

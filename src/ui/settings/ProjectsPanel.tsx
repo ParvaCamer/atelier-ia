@@ -4,6 +4,7 @@ import { api } from "../../ipc";
 import { isTauri } from "../../ipc/devMock";
 import { useConfig } from "../../state/config";
 import { useWorld } from "../../state/store";
+import { same, useUnsavedFlag } from "../../state/unsaved";
 import { Area, Feedback, Field, Text, Toggle, useJob } from "./fields";
 
 const COLORS = ["#5eead4", "#a78bfa", "#fbbf24", "#f87171", "#60a5fa", "#34d399", "#f472b6", "#fb923c"];
@@ -30,6 +31,8 @@ export function ProjectsPanel() {
   }, [selected, projects]);
 
   const patch = (p: Partial<Project>) => setDraft((d) => (d ? { ...d, ...p } : d));
+  const original = projects.find((p) => p.id === draft?.id);
+  useUnsavedFlag("project", !!draft && (original ? !same(draft, original) : !!(draft.name.trim() || draft.description.trim() || draft.rootPath)));
 
   const pickFolder = async () => {
     const { open } = await import("@tauri-apps/plugin-dialog");

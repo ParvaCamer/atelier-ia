@@ -3,6 +3,7 @@ import type { Agent, AgentId, AgentSkill, Archetype, Grant, Mode, Project, Resou
 import { api, type GrantPresetName } from "../../ipc";
 import { useConfig } from "../../state/config";
 import { useWorld } from "../../state/store";
+import { same, useUnsavedFlag } from "../../state/unsaved";
 import { ARCHETYPE_COLOR } from "../../world/palette";
 import { Area, DangerButton, Feedback, Field, Select, Tags, Text, Toggle, useJob } from "./fields";
 
@@ -45,6 +46,8 @@ export function AgentsPanel() {
   }, [selected, agents]);
 
   const patch = (p: Partial<Agent>) => setDraft((d) => (d ? { ...d, ...p } : d));
+  const original = agents.find((a) => a.id === draft?.id);
+  useUnsavedFlag("agent", !!draft && (original ? !same(draft, original) : !!(draft.name.trim() || draft.role.trim() || draft.systemPrompt.trim() || draft.skillNotes.trim())));
   const visible = agents.filter((a) => filter === "all" || a.projectId === filter);
   const project = projects.find((p) => p.id === draft?.projectId);
 
@@ -170,18 +173,21 @@ function RoleSkill({ agent, onPick }: { agent: Agent; onPick: (slug: string | nu
   const reloadSkills = useConfig((s) => s.reloadSkills);
   const [editing, setEditing] = useState<AgentSkill | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const [touched, setTouched] = useState(false);
   const job = useJob();
   const current = skills.find((s) => s.slug === agent.skillSlug);
+  useUnsavedFlag("agent-skill", !!editing && touched);
 
   const open = (skill: AgentSkill | null) => {
     job.setError(null);
     job.setOk(null);
     setIsNew(!skill);
+    setTouched(false);
     setEditing(skill ? { ...skill } : {
       slug: slugify(agent.role), title: agent.role.trim(), content: "", origin: "user", updatedAt: new Date().toISOString(),
     });
   };
-  const edit = (p: Partial<AgentSkill>) => setEditing((e) => (e ? { ...e, ...p } : e));
+  const edit = (p: Partial<AgentSkill>) => { setEditing((e) => (e ? { ...e, ...p } : e)); setTouched(true); };
 
   const draft = async () => {
     if (!editing) return;
@@ -302,6 +308,7 @@ function GrantsEditor({ agent, project }: { agent: Agent; project?: Project }) {
   const [rows, setRows] = useState<Grant[]>([]);
   const [dirty, setDirty] = useState(false);
   const job = useJob();
+  useUnsavedFlag("grants", dirty);
 
   useEffect(() => {
     let alive = true;

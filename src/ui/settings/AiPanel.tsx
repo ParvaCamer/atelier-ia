@@ -3,6 +3,7 @@ import type { HealthState, ModelRoute, ProviderConfig } from "../../ipc";
 import { api } from "../../ipc";
 import { useConfig } from "../../state/config";
 import { useWorld } from "../../state/store";
+import { useUnsavedFlag } from "../../state/unsaved";
 import { DangerButton, Feedback, Select, Text, Toggle, useJob } from "./fields";
 
 /** Alias appelés directement par le moteur (miroir de config.rs, pour l'affichage seulement). */
@@ -94,6 +95,7 @@ function EmbeddingSetting() {
   const ollama = useConfig((s) => s.health.find((h) => h.providerId === "ollama"));
   const [model, setModel] = useState(settings.embeddingModel);
   const job = useJob();
+  useUnsavedFlag("embedding", model !== settings.embeddingModel);
   const pulled = !model.trim() || (ollama?.models ?? []).some((m) => m === model.trim() || m.startsWith(`${model.trim()}:`));
 
   return (
@@ -128,6 +130,7 @@ function ProviderCard({ provider }: { provider: ProviderConfig }) {
   const [url, setUrl] = useState(provider.baseUrl ?? "");
   const [key, setKey] = useState("");
   const job = useJob();
+  useUnsavedFlag(`provider:${provider.id}`, url !== (provider.baseUrl ?? "") || !!key.trim());
   const isOllama = provider.kind === "ollama";
   const isOpenAi = provider.kind === "openai";
 
@@ -205,6 +208,7 @@ function RouteRow({ route, isNew, onDone }: { route: ModelRoute; isNew?: boolean
 
   const provider = providers.find((p) => p.id === draft.providerId);
   const dirty = isNew || JSON.stringify(draft) !== JSON.stringify(route);
+  useUnsavedFlag(`route:${route.modelRef || "nouvelle"}`, isNew ? !!draft.modelRef.trim() : dirty);
   const users = agents.filter((a) => a.modelRef === route.modelRef).length;
   const usage = [RESERVED[route.modelRef], users ? `${users} agent${users > 1 ? "s" : ""}` : null].filter(Boolean).join(" · ");
   const patch = (p: Partial<ModelRoute>) => setDraft((d) => ({ ...d, ...p }));
@@ -249,7 +253,7 @@ function RouteRow({ route, isNew, onDone }: { route: ModelRoute; isNew?: boolean
             </button>
           )}
           {!isNew && !RESERVED[route.modelRef] && (
-            <DangerButton label="✕" confirmLabel="Supprimer" onConfirm={async () => {
+            <DangerButton label="✕" ariaLabel={`Supprimer l'alias ${route.modelRef}`} confirmLabel="Supprimer" onConfirm={async () => {
               const done = await job.run(() => api.deleteRoute(route.modelRef));
               if (done !== undefined) await afterSave();
             }} />

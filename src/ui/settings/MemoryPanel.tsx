@@ -8,6 +8,7 @@ import { api } from "../../ipc";
 import { useConfig } from "../../state/config";
 import { useHistory } from "../../state/history";
 import { useWorld } from "../../state/store";
+import { useUnsavedFlag } from "../../state/unsaved";
 import { Area, DangerButton, Feedback, Select, useJob } from "./fields";
 
 const KINDS: { value: MemoryKind; label: string }[] = [
@@ -27,6 +28,7 @@ export function MemoryPanel() {
   const [kind, setKind] = useState("");
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<MemoryView[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const job = useJob();
 
   const load = async () => {
@@ -38,6 +40,7 @@ export function MemoryPanel() {
       limit: 300,
     }));
     if (list) setItems(list);
+    setLoaded(true);
   };
 
   useEffect(() => {
@@ -77,7 +80,14 @@ export function MemoryPanel() {
       <Feedback error={job.error} ok={null} />
 
       <div className="memory-list">
-        {items.length === 0 && <div className="grants-empty">Aucun souvenir pour ces filtres.</div>}
+        {!loaded && <div className="grants-empty">Chargement…</div>}
+        {loaded && items.length === 0 && !job.error && (
+          <div className="grants-empty">
+            {projectId || agentId || kind || query.trim()
+              ? "Aucun souvenir pour ces filtres."
+              : "Aucun souvenir pour l'instant : ils apparaissent après les tâches confiées à une IA, ou ajoute-les à la main."}
+          </div>
+        )}
         {items.map((m) => <MemoryRow key={m.entry.id} view={m} onChanged={load} />)}
       </div>
     </div>
@@ -92,6 +102,7 @@ function NewMemory({ projects, onSaved }: { projects: { id: ProjectId; name: str
   const [kind, setKind] = useState<MemoryKind>("convention");
   const [content, setContent] = useState("");
   const job = useJob();
+  useUnsavedFlag("memory-new", open && !!content.trim());
 
   if (!open) return <button className="list-new inline" onClick={() => setOpen(true)}>+ Ajouter un souvenir</button>;
 
@@ -132,6 +143,7 @@ function MemoryRow({ view, onChanged }: { view: MemoryView; onChanged: () => voi
   const [editing, setEditing] = useState(false);
   const [content, setContent] = useState(entry.content);
   const job = useJob();
+  useUnsavedFlag(`memory:${entry.id}`, editing && content !== entry.content);
 
   return (
     <div className="memory-row" data-kind={entry.kind}>

@@ -24,6 +24,8 @@ interface ConfigStore {
   routes: ModelRoute[];
   health: ProviderHealth[];
   healthLoading: boolean;
+  /** Échec du dernier chargement : affiché, jamais avalé. */
+  loadError: string | null;
   tools: ToolInfo[];
   settings: AppSettings;
   /** Skills de rôle, partagés par tous les projets. */
@@ -49,6 +51,7 @@ export const useConfig = create<ConfigStore>((set, get) => ({
   routes: [],
   health: [],
   healthLoading: false,
+  loadError: null,
   tools: [],
   settings: { startOllamaWithApp: false, embeddingModel: "nomic-embed-text" },
   skills: [],
@@ -59,15 +62,20 @@ export const useConfig = create<ConfigStore>((set, get) => ({
   setSection: (section) => set({ section, focusId: null }),
 
   async load() {
-    const [allProjects, providers, routes, tools, settings, skills] = await Promise.all([
-      api.listAllProjects(),
-      api.listProviderConfigs(),
-      api.listModelRoutes(),
-      api.toolCatalog(),
-      api.getSettings(),
-      api.listAgentSkills(),
-    ]);
-    set({ allProjects, providers, routes, tools, settings, skills });
+    try {
+      const [allProjects, providers, routes, tools, settings, skills] = await Promise.all([
+        api.listAllProjects(),
+        api.listProviderConfigs(),
+        api.listModelRoutes(),
+        api.toolCatalog(),
+        api.getSettings(),
+        api.listAgentSkills(),
+      ]);
+      set({ allProjects, providers, routes, tools, settings, skills, loadError: null });
+    } catch (e) {
+      set({ loadError: String(e) });
+      return;
+    }
     // L'état des fournisseurs lance des processus : chargé à part, sans
     // bloquer l'affichage du reste.
     void get().refreshHealth();
@@ -77,6 +85,8 @@ export const useConfig = create<ConfigStore>((set, get) => ({
     set({ healthLoading: true });
     try {
       set({ health: await api.providerHealth() });
+    } catch (e) {
+      set({ loadError: `état des fournisseurs : ${String(e)}` });
     } finally {
       set({ healthLoading: false });
     }

@@ -66,17 +66,20 @@ export function Tags({ values, onChange, placeholder }: { values: string[]; onCh
 }
 
 /** Suppression en deux temps : pas de boîte de dialogue, pas de clic malheureux. */
-export function DangerButton({ label, confirmLabel, onConfirm, disabled }: {
+export function DangerButton({ label, confirmLabel, onConfirm, disabled, ariaLabel }: {
   label: string; confirmLabel: string; onConfirm: () => void; disabled?: boolean;
+  /** Obligatoire quand `label` est une icône (✕) : c'est ce que lit un lecteur d'écran. */
+  ariaLabel?: string;
 }) {
   const [armed, setArmed] = useState(false);
   return armed ? (
-    <span className="danger-confirm">
-      <button type="button" className="btn danger" onClick={() => { setArmed(false); onConfirm(); }}>{confirmLabel}</button>
+    // Échap annule la confirmation sans fermer l'écran derrière.
+    <span className="danger-confirm" onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setArmed(false); } }}>
+      <button type="button" className="btn danger" autoFocus onClick={() => { setArmed(false); onConfirm(); }}>{confirmLabel}</button>
       <button type="button" className="btn ghost" onClick={() => setArmed(false)}>annuler</button>
     </span>
   ) : (
-    <button type="button" className="btn ghost" disabled={disabled} onClick={() => setArmed(true)}>{label}</button>
+    <button type="button" className="btn ghost" disabled={disabled} aria-label={ariaLabel} title={ariaLabel} onClick={() => setArmed(true)}>{label}</button>
   );
 }
 

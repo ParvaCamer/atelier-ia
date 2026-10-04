@@ -2,8 +2,9 @@
  * Écran de réglages. Posé au-dessus du monde, qui cesse de se rendre tant
  * qu'il est ouvert : inutile de faire travailler le GPU derrière un panneau opaque.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useConfig, type Section } from "../../state/config";
+import { useUnsaved } from "../../state/unsaved";
 import { AgentsPanel } from "./AgentsPanel";
 import { AiPanel } from "./AiPanel";
 import { MemoryPanel } from "./MemoryPanel";
@@ -26,23 +27,33 @@ export function Settings() {
   const setSection = useConfig((s) => s.setSection);
   const close = useConfig((s) => s.close);
   const load = useConfig((s) => s.load);
+  const loadError = useConfig((s) => s.loadError);
+  const unsaved = useUnsaved((s) => s.keys.size > 0);
+  const [warned, setWarned] = useState(false);
 
   useEffect(() => {
     if (open) void load();
   }, [open, load]);
+  useEffect(() => { if (!unsaved) setWarned(false); }, [unsaved]);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      // Échap dans un champ ne doit pas fermer l'écran et perdre la saisie.
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      // Échap dans un champ ne ferme pas l'écran ; avec des modifications
+      // non enregistrées non plus : il ne perd jamais une saisie.
       const tag = (e.target as HTMLElement)?.tagName;
-      if (e.key === "Escape" && !["INPUT", "TEXTAREA", "SELECT"].includes(tag)) close();
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
+      if (useUnsaved.getState().keys.size > 0) { setWarned(true); return; }
+      close();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, close]);
 
   if (!open) return null;
+
+  const leave = () => { useUnsaved.getState().clear(); setWarned(false); close(); };
 
   return (
     <div className="settings" role="dialog" aria-label="Réglages">
@@ -55,9 +66,28 @@ export function Settings() {
           </button>
         ))}
         <div className="settings-nav-spacer" />
-        <button className="settings-close" onClick={close}>Retour au monde <kbd>esc</kbd></button>
+        {unsaved && warned ? (
+          <div className="unsaved-guard" role="alert">
+            Modifications non enregistrées : enregistre-les, ou quitte en les abandonnant.
+            <button className="btn danger small" onClick={leave}>Quitter sans enregistrer</button>
+            <button className="btn ghost small" onClick={() => setWarned(false)}>Rester</button>
+          </div>
+        ) : (
+          <button
+            className="settings-close"
+            onClick={() => (unsaved ? setWarned(true) : close())}
+            title={unsaved ? "Des modifications ne sont pas enregistrées" : undefined}
+          >
+            Retour au monde <kbd>esc</kbd>
+          </button>
+        )}
       </nav>
       <div className="settings-body">
+        {loadError && (
+          <div className="feedback" data-kind="error" role="alert">
+            Réglages incomplets : {loadError} <button className="btn ghost small" onClick={() => void load()}>Réessayer</button>
+          </div>
+        )}
         {section === "projects" && <ProjectsPanel />}
         {section === "agents" && <AgentsPanel />}
         {section === "workflows" && <WorkflowsPanel />}

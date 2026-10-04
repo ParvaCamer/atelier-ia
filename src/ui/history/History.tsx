@@ -77,6 +77,7 @@ export function History() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (open && focusRun) setSelected(focusRun);
@@ -110,7 +111,9 @@ export function History() {
         setError(null);
         setSelected((cur) => cur ?? list[0]?.run.id ?? null);
       } catch (e) {
-        setError(String(e));
+        setError(`Historique illisible : ${String(e)}`);
+      } finally {
+        setLoading(false);
       }
     }, 200);
     return () => clearTimeout(handle);
@@ -141,7 +144,14 @@ export function History() {
       <div className="history-split">
         <aside className="history-list">
           {error && <div className="feedback" data-kind="error">{error}</div>}
-          {runs.length === 0 && !error && <div className="empty">Aucune exécution.</div>}
+          {loading && runs.length === 0 && !error && <div className="empty">Chargement…</div>}
+          {!loading && runs.length === 0 && !error && (
+            <div className="empty">
+              {projectId || status || query.trim() || scheduledOnly
+                ? "Aucune exécution pour ces filtres."
+                : "Aucune exécution pour l'instant : lance un workflow ou écris une demande dans la barre du haut."}
+            </div>
+          )}
           {runs.map((r) => (
             <button key={r.run.id} className="run-item" data-active={selected === r.run.id} onClick={() => setSelected(r.run.id)}>
               <div className="run-item-top">
@@ -171,6 +181,7 @@ function RunDetailView({ runId }: { runId: string }) {
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [focusTask, setFocusTask] = useState<TaskId | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const launchWorkflow = useWorld((s) => s.launchWorkflow);
   const close = useHistory((s) => s.close);
   // Run vivant : son état arrive par le snapshot, déjà diffusé à 8 Hz.
@@ -198,15 +209,19 @@ function RunDetailView({ runId }: { runId: string }) {
     if (id) document.getElementById(`task-${id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   };
 
-  if (error) return <div className="feedback" data-kind="error">{error}</div>;
+  if (error) return <div className="feedback" data-kind="error" role="alert">Détail illisible : {error} <button className="btn ghost small" onClick={() => void load()}>Réessayer</button></div>;
   if (!detail) return <div className="empty">Chargement…</div>;
 
   const { run } = detail.summary;
   const status = liveRun?.status ?? run.status;
   const replay = async () => {
-    if (run.workflowId) await launchWorkflow(run.workflowId);
-    else if (run.request) await api.submitRequest(run.request, run.projectId);
-    close();
+    try {
+      if (run.workflowId) await launchWorkflow(run.workflowId);
+      else if (run.request) await api.submitRequest(run.request, run.projectId);
+      close();
+    } catch (e) {
+      setActionError(`Relance impossible : ${String(e)}`);
+    }
   };
 
   return (
@@ -238,6 +253,7 @@ function RunDetailView({ runId }: { runId: string }) {
           </button>
         )}
         <button className="btn ghost" onClick={() => void load()}>Actualiser</button>
+        {actionError && <div className="feedback" data-kind="error" role="alert">{actionError}</div>}
       </div>
 
       {steps.length > 0 && (
@@ -274,6 +290,11 @@ function TaskCard({ detail, onChanged, focused, received }: {
   const [showCalls, setShowCalls] = useState(task.status === "failed");
   const [logs, setLogs] = useState<LogLine[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const attempt = async (what: string, fn: () => Promise<void>) => {
+    setFailure(null);
+    try { await fn(); } catch (e) { setFailure(`${what} : ${String(e)}`); }
+  };
   const openAgent = () => useConfig.getState().openAt("agents", task.agentId);
   const refused = useMemo(() => toolCalls.filter((c) => c.decision !== "allow").length, [toolCalls]);
 
@@ -313,19 +334,24 @@ function TaskCard({ detail, onChanged, focused, received }: {
         </button>
         <button
           className="btn ghost small"
-          onClick={async () => setLogs(logs ? null : await api.tailLogs({ taskId: task.id, limit: 500 }))}
+          onClick={() => attempt("journal illisible", async () => setLogs(logs ? null : await api.tailLogs({ taskId: task.id, limit: 500 })))}
         >
           Journal {logs ? "▴" : "▾"}
         </button>
         {task.status === "failed" && (
           <button
             className="btn small" disabled={busy}
-            onClick={async () => { setBusy(true); try { await api.controlTask(task.id, "retry"); onChanged(); } finally { setBusy(false); } }}
+            onClick={() => attempt("relance impossible", async () => {
+              setBusy(true);
+              try { await api.controlTask(task.id, "retry"); onChanged(); } finally { setBusy(false); }
+            })}
           >
             Relancer l'étape
           </button>
         )}
       </div>
+
+      {failure && <div className="feedback" data-kind="error" role="alert">{failure}</div>}
 
       {showCalls && (
         <div className="calls">
