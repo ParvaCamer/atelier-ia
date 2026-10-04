@@ -21,6 +21,21 @@ export type LogFilter = { kind: "agent" | "task"; id: string };
 
 export type Notice = { kind: "error" | "info"; text: string };
 
+/**
+ * Relais reçu du moteur, gardé quelques secondes pour la représentation.
+ * Aucune coordonnée : qui transmet, qui reçoit, quand c'est arrivé.
+ */
+export interface Relay {
+  id: string;
+  fromAgent: AgentId;
+  toAgent: AgentId;
+  /** Horodatage `performance.now()` de réception. */
+  at: number;
+}
+
+/** Au-delà, un relais n'intéresse plus que l'historique. */
+const RELAY_KEEP_MS = 10_000;
+
 interface WorldStore {
   ready: boolean;
   projects: Project[];
@@ -35,6 +50,8 @@ interface WorldStore {
   notice: Notice | null;
   /** L'orchestrateur est en train de planifier une demande. */
   planning: boolean;
+  /** Relais récents (quelques secondes), pour la représentation. */
+  relays: Relay[];
 
   init: () => Promise<void>;
   select: (id: AgentId | null) => void;
@@ -72,6 +89,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
   logFilter: null,
   notice: null,
   planning: false,
+  relays: [],
 
   async init() {
     // React 18 en mode strict monte les effets deux fois : sans ce
@@ -111,6 +129,11 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
     await onDomainEvent(async (e) => {
       if (e.type === "configChanged") await get().reloadConfig();
+      if (e.type === "handoff") {
+        const now = performance.now();
+        const relay: Relay = { id: e.id, fromAgent: e.fromAgent, toAgent: e.toAgent, at: now };
+        set({ relays: get().relays.filter((r) => now - r.at < RELAY_KEEP_MS).concat(relay) });
+      }
       if (e.type === "approvalRequested" || e.type === "approvalResolved") {
         await get().refreshApprovals();
       }

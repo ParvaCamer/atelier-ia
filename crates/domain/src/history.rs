@@ -50,6 +50,26 @@ pub struct TaskDetail {
 pub struct RunDetail {
     pub summary: RunSummary,
     pub tasks: Vec<TaskDetail>,
+    /// Passages de relais entre étapes, dans l'ordre où ils ont eu lieu.
+    pub handoffs: Vec<Handoff>,
+}
+
+/// Passage de relais : une tâche terminée en débloque une autre, et son
+/// résultat entre dans le contexte de la suivante. Décrit, jamais dessiné :
+/// la couche 3D décide seule de l'animation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Handoff {
+    pub id: HandoffId,
+    pub run_id: RunId,
+    pub from_task: TaskId,
+    pub to_task: TaskId,
+    pub from_agent: AgentId,
+    pub to_agent: AgentId,
+    /// Extrait du résultat transmis.
+    pub summary: String,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]

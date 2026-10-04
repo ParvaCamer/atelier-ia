@@ -12,6 +12,8 @@ export type { Archetype } from "./Archetype";
 export type { Decision } from "./Decision";
 export type { DomainEvent } from "./DomainEvent";
 export type { Grant } from "./Grant";
+export type { Handoff } from "./Handoff";
+export type { HandoffId } from "./HandoffId";
 export type { HealthState } from "./HealthState";
 export type { IssueLevel } from "./IssueLevel";
 export type { LogId } from "./LogId";

@@ -296,6 +296,14 @@ async fn workflow_respecte_le_dag() {
     // b et c se chevauchent : la parallélisation est réelle.
     assert!(b.started_at.unwrap() < c.finished_at.unwrap() && c.started_at.unwrap() < b.finished_at.unwrap());
     assert_eq!(repo::runs::get(w.engine.db(), &run).await.unwrap().status, RunStatus::Completed);
+
+    // d reçoit le relais de b ET de c : les deux résultats entrent dans son contexte.
+    let mut relays: Vec<(TaskId, TaskId)> = w.engine.run_detail(&run).await.unwrap()
+        .handoffs.into_iter().map(|h| (h.from_task, h.to_task)).collect();
+    relays.sort();
+    let mut want = vec![(by("a"), by("b")), (by("a"), by("c")), (by("b"), by("d")), (by("c"), by("d"))];
+    want.sort();
+    assert_eq!(relays, want);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -387,4 +395,45 @@ async fn snapshot_suit_l_etat_de_chaque_etape() {
     let view = w.engine.current_snapshot().await.runs.into_iter().find(|r| r.id == run).unwrap();
     assert_eq!(view.status, RunStatus::Failed);
     assert_eq!(view.done, 2);
+}
+
+/// Un DAG à deux étapes : la fin de la première consigne un relais vers la
+/// seconde, avec les deux agents et la tâche source.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn relais_consigne_entre_deux_etapes() {
+    let w = world(&[("shell.exec", cmd("echo"), Mode::Allow)], 2).await;
+    let (a0, a1) = (&w.agents[0], &w.agents[1]);
+    let mut events = w.engine.bus().subscribe();
+    let id = save_workflow(&w, vec![step("source", a0, &[], &["echo résultat-transmis"]), step("suite", a1, &["source"], &["echo fin"])]).await;
+
+    let run = w.engine.launch_workflow(&id).await.unwrap();
+    let tasks = repo::tasks::list_by_run(w.engine.db(), &run).await.unwrap();
+    let (source, suite) = (&tasks[0], &tasks[1]);
+    wait_for(&w, &suite.id, TaskStatus::Completed).await;
+
+    let detail = w.engine.run_detail(&run).await.unwrap();
+    assert_eq!(detail.handoffs.len(), 1, "un relais, ni plus ni moins : {:?}", detail.handoffs);
+    let h = &detail.handoffs[0];
+    assert_eq!((&h.from_agent, &h.to_agent), (a0, a1), "les deux agents sont nommés");
+    assert_eq!(h.from_task, source.id, "tâche source consignée");
+    assert_eq!(h.to_task, suite.id);
+    assert_eq!(h.summary, "résultat-transmis", "ce qui a été transmis");
+
+    // Le relais est aussi publié sur le bus, pour la représentation en direct.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut published = false;
+    while Instant::now() < deadline && !published {
+        match tokio::time::timeout(Duration::from_millis(200), events.recv()).await {
+            Ok(Ok(DomainEvent::Handoff(e))) => published = e == *h,
+            Ok(Ok(_)) => {}
+            _ => break,
+        }
+    }
+    assert!(published, "événement Handoff absent du bus");
+
+    // Une étape sans suite ne passe aucun relais.
+    let id = save_workflow(&w, vec![step("seule", a0, &[], &["echo rien"])]).await;
+    let run = w.engine.launch_workflow(&id).await.unwrap();
+    wait_for(&w, &first_task(&w, &run).await.id, TaskStatus::Completed).await;
+    assert!(w.engine.run_detail(&run).await.unwrap().handoffs.is_empty());
 }

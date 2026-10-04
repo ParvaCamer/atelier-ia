@@ -2,6 +2,7 @@ pub mod agent_skills;
 pub mod agents;
 pub mod approvals;
 pub mod grants;
+pub mod handoffs;
 pub mod logs;
 pub mod memory;
 pub mod projects;

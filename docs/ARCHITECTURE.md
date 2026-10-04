@@ -611,6 +611,16 @@ commande supplémentaire. Le graphe est celui de l'éditeur
 dépendances reste `queued`. Accès : Historique, compteur « workflows » de
 l'en-tête, ligne « Workflow » du panneau d'agent.
 
+## Relais entre agents (implémenté)
+
+Quand une tâche terminée en débloque une autre, le scheduler consigne un
+`Handoff` par dépendance (table `handoffs`, migration 0006) : tâche
+source, tâche cible, les deux agents, extrait du résultat transmis. Il
+est publié sur le bus (`DomainEvent::Handoff`), visible dans l'historique
+sur la carte de l'étape qui le reçoit, et dans le monde par
+`src/world/HandoffLayer.ts` (un arc lumineux, un draw call). Le moteur ne
+décrit que qui transmet à qui ; l'animation est une décision de la 3D.
+
 ---
 
 ## K. Roadmap MVP → V1

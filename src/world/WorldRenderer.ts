@@ -13,6 +13,7 @@ import { useConfig } from "../state/config";
 import { useHistory } from "../state/history";
 import { useWorld } from "../state/store";
 import { AgentLayer } from "./AgentLayer";
+import { HandoffLayer } from "./HandoffLayer";
 import { SceneryLayer, makeGrid, makeGround } from "./SceneryLayer";
 import { buildLayout, type ZoneLayout } from "./layout";
 import { GROUND } from "./palette";
@@ -37,6 +38,7 @@ export class WorldRenderer {
   private scene = new Scene();
   private camera: PerspectiveCamera;
   private agents: AgentLayer;
+  private handoffs: HandoffLayer;
   private scenery: SceneryLayer;
   private zones = new Map<string, ZoneLayout>();
 
@@ -95,6 +97,7 @@ export class WorldRenderer {
     this.scene.add(makeGrid());
 
     this.agents = new AgentLayer(this.scene);
+    this.handoffs = new HandoffLayer(this.scene);
     this.scenery = new SceneryLayer(this.scene);
 
     // Poignée de mise au point : inspecter la scène, compter les draw calls
@@ -303,6 +306,7 @@ export class WorldRenderer {
       this.pullSnapshot();
       this.updateCamera(dt);
       this.agents.update(dt, this.elapsed);
+      this.handoffs.update(useWorld.getState().relays, now, (id, out) => this.agents.positionOf(id, out));
       this.scenery.updateScreens(
         (id) => this.agents.isAtDesk(id),
         this.accentByProject(),
@@ -376,6 +380,7 @@ export class WorldRenderer {
     window.removeEventListener("resize", this.resize);
     this.unsubscribe.forEach((fn) => fn());
     this.agents.dispose();
+    this.handoffs.dispose();
     this.scenery.dispose();
     this.renderer.dispose();
   }

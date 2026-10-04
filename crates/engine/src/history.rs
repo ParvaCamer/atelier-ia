@@ -24,6 +24,7 @@ impl Engine {
                 task,
             });
         }
-        Ok(RunDetail { summary, tasks })
+        let handoffs = repo::handoffs::list_by_run(db, run_id).await?;
+        Ok(RunDetail { summary, tasks, handoffs })
     }
 }

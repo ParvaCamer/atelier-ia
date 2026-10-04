@@ -1,5 +1,6 @@
 use crate::{
     agent::{Activity, AgentStatus},
+    history::Handoff,
     ids::*,
     log::LogLine,
     task::TaskStatus,
@@ -50,6 +51,8 @@ pub enum DomainEvent {
         granted: bool,
     },
     Log(LogLine),
+    /// Une étape terminée passe le relais à une autre.
+    Handoff(Handoff),
     /// Quelque chose a changé côté configuration (projets, agents) :
     /// l'UI doit recharger. Volontairement grossier — ces changements
     /// sont rares, inutile d'optimiser.

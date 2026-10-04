@@ -141,6 +141,9 @@ impl Engine {
                 self.finish(&task, TaskStatus::Completed).await;
                 self.set_agent_state(agent, AgentStatus::Completed, Activity::None).await;
                 log(format!("✓ {}", task.title));
+                if let Err(e) = self.record_handoffs(&task).await {
+                    tracing::warn!("relais après {} : {e}", task.id);
+                }
 
                 let me = self.clone();
                 let (agent, id) = (task.agent_id.clone(), task.id.clone());
@@ -274,6 +277,52 @@ impl Engine {
         Ok(summarize(&last_output))
     }
 
+    /// Relais : chaque tâche que celle-ci vient de débloquer (toutes ses
+    /// dépendances terminées) reçoit le résultat de **chacune** de ses
+    /// dépendances — c'est exactement ce qui entrera dans son contexte. Un
+    /// relais est consigné par dépendance, au moment du déblocage.
+    async fn record_handoffs(&self, done: &Task) -> anyhow::Result<()> {
+        let siblings = repo::tasks::list_by_run(self.db(), &done.run_id).await?;
+        let by_id: HashMap<&TaskId, &Task> = siblings.iter().map(|t| (&t.id, t)).collect();
+        let unblocked = siblings.iter().filter(|t| {
+            t.status == TaskStatus::Queued
+                && t.depends_on.contains(&done.id)
+                && t.depends_on.iter().all(|d| by_id.get(d).is_some_and(|x| x.status == TaskStatus::Completed))
+        });
+
+        let already = repo::handoffs::list_by_run(self.db(), &done.run_id).await?;
+        for next in unblocked {
+            for dep in next.depends_on.iter().filter_map(|d| by_id.get(d)) {
+                // Deux dépendances finies au même instant : un seul relais par
+                // tentative (une relance de la dépendance en produit un nouveau).
+                if already.iter().any(|h| {
+                    h.from_task == dep.id && h.to_task == next.id && dep.finished_at.is_some_and(|f| h.created_at >= f)
+                }) {
+                    continue;
+                }
+                let handoff = Handoff {
+                    id: HandoffId::new(),
+                    run_id: done.run_id.clone(),
+                    from_task: dep.id.clone(),
+                    to_task: next.id.clone(),
+                    from_agent: dep.agent_id.clone(),
+                    to_agent: next.agent_id.clone(),
+                    summary: handoff_summary(dep.result.as_deref().unwrap_or_default()),
+                    created_at: Utc::now(),
+                };
+                repo::handoffs::insert(self.db(), &handoff).await?;
+                self.system_log(
+                    &next.agent_id,
+                    &next.project_id,
+                    Some(&next.id),
+                    format!("⇢ relais reçu de « {} »", dep.title),
+                );
+                self.bus().publish(DomainEvent::Handoff(handoff));
+            }
+        }
+        Ok(())
+    }
+
     async fn finish(&self, task: &Task, status: TaskStatus) {
         match repo::tasks::transition(self.db(), &task.id, status).await {
             Ok(_) => self.publish_task(task, status),
@@ -394,6 +443,16 @@ impl Engine {
 
         self.update_run_status(&task.run_id).await?;
         Ok(())
+    }
+}
+
+/// Extrait du résultat transmis : la première ligne utile, bornée.
+fn handoff_summary(result: &str) -> String {
+    let line = result.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
+    if line.chars().count() > 160 {
+        format!("{}…", line.chars().take(160).collect::<String>())
+    } else {
+        line.to_string()
     }
 }
 

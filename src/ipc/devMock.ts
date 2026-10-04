@@ -186,7 +186,24 @@ let SCHEDULES: Record<string, any>[] = [
 export function installDevMock() {
   let tick = 0;
   // Le snapshot est poussé comme le ferait le moteur : l'exécution simulée avance.
-  setInterval(() => { void emit("world:snapshot", snapshot(++tick)); }, 1000);
+  // Quand une étape se débloque, chacune de ses dépendances lui passe le relais.
+  let ready = new Set<string>();
+  setInterval(() => {
+    const live = liveRun();
+    const done = new Set(live.steps.filter((s) => s.status === "completed").map((s) => s.taskId));
+    const now = new Set(live.steps.filter((s) => s.dependsOn.length && s.dependsOn.every((d) => done.has(d))).map((s) => s.taskId));
+    for (const s of live.steps.filter((x) => now.has(x.taskId) && !ready.has(x.taskId))) {
+      for (const d of s.dependsOn) {
+        const from = live.steps.find((x) => x.taskId === d)!;
+        void emit("engine:event", {
+          type: "handoff", id: `h-${d}-${s.taskId}-${Date.now()}`, runId: "r-live", fromTask: d, toTask: s.taskId,
+          fromAgent: from.agentId, toAgent: s.agentId, summary: "OK", createdAt: new Date().toISOString(),
+        });
+      }
+    }
+    ready = now;
+    void emit("world:snapshot", snapshot(++tick));
+  }, 1000);
   mockIPC(async (cmd, payload) => {
     const args = (payload ?? {}) as Record<string, any>;
     switch (cmd) {
@@ -199,6 +216,11 @@ export function installDevMock() {
           const live = liveRun();
           return {
             summary: { ...MOCK_RUN("r-live", live.title, live.status, 1, null), total: live.total, done: live.done },
+            handoffs: live.steps.filter((s) => s.dependsOn.length && s.dependsOn.every((d) => live.steps.find((x) => x.taskId === d)?.status === "completed"))
+              .flatMap((s) => s.dependsOn.map((d) => ({
+                id: `h-${d}-${s.taskId}`, runId: "r-live", fromTask: d, toTask: s.taskId,
+                fromAgent: LIVE_STEPS.find((x) => x.id === d)!.agentId, toAgent: s.agentId, summary: "OK", createdAt: iso(1),
+              }))),
             tasks: live.steps.map((s) => ({
               agentName: AGENTS.find((a) => a.id === s.agentId)?.name ?? "?",
               task: { id: s.taskId, runId: "r-live", projectId: "p1", agentId: s.agentId, title: s.title, description: "",
@@ -213,6 +235,8 @@ export function installDevMock() {
         const summary = RUNS.find((r) => r.run.id === args.runId) ?? RUNS[0];
         return {
           summary,
+          handoffs: [{ id: "h1", runId: summary.run.id, fromTask: "t0", toTask: "t1", fromAgent: "a1", toAgent: "a3",
+            summary: "Le formulaire est dans ContactScreen.kt ; la validation de l'e-mail rejette les domaines en .app.", createdAt: iso(10) }],
           tasks: [
             { agentName: "Dev Front Spotly", task: { id: "t0", runId: summary.run.id, projectId: "p1", agentId: "a1", title: "Localiser le formulaire", description: "", status: "completed", progress: 1, dependsOn: [], commands: [], requiresApproval: false, result: "Le formulaire est dans ContactScreen.kt ; la validation de l'e-mail rejette les domaines en .app.", error: null, attempt: 0, createdAt: iso(12), startedAt: iso(12), finishedAt: iso(10) },
               toolCalls: [

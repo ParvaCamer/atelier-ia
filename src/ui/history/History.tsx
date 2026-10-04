@@ -4,7 +4,7 @@
  * rien n'est reconstitué à partir du discours des agents.
  */
 import { useEffect, useMemo, useState } from "react";
-import type { LogLine, ProjectId, RunDetail, RunFilter, RunStatus, RunStepView, RunSummary, TaskDetail, TaskId, ToolCallRecord } from "../../ipc";
+import type { Handoff, LogLine, ProjectId, RunDetail, RunFilter, RunStatus, RunStepView, RunSummary, TaskDetail, TaskId, ToolCallRecord } from "../../ipc";
 import { api } from "../../ipc";
 import { useConfig } from "../../state/config";
 import { useHistory } from "../../state/history";
@@ -218,13 +218,24 @@ function RunDetailView({ runId }: { runId: string }) {
       )}
 
       <div className="timeline">
-        {detail.tasks.map((t) => <TaskCard key={t.task.id} detail={t} onChanged={load} focused={focusTask === t.task.id} />)}
+        {detail.tasks.map((t) => (
+          <TaskCard
+            key={t.task.id} detail={t} onChanged={load} focused={focusTask === t.task.id}
+            received={detail.handoffs.filter((h) => h.toTask === t.task.id).map((h) => ({
+              handoff: h,
+              from: detail.tasks.find((x) => x.task.id === h.fromTask),
+            }))}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
-function TaskCard({ detail, onChanged, focused }: { detail: TaskDetail; onChanged: () => void; focused: boolean }) {
+function TaskCard({ detail, onChanged, focused, received }: {
+  detail: TaskDetail; onChanged: () => void; focused: boolean;
+  received: { handoff: Handoff; from: TaskDetail | undefined }[];
+}) {
   const { task, agentName, toolCalls } = detail;
   const [showCalls, setShowCalls] = useState(task.status === "failed");
   const [logs, setLogs] = useState<LogLine[] | null>(null);
@@ -244,6 +255,19 @@ function TaskCard({ detail, onChanged, focused }: { detail: TaskDetail; onChange
           {span(task.startedAt, task.finishedAt) && ` · ${span(task.startedAt, task.finishedAt)}`}
         </span>
       </div>
+
+      {received.length > 0 && (
+        <ul className="relays">
+          {received.map(({ handoff, from }) => (
+            <li key={handoff.id} title={`Relais consigné le ${when(handoff.createdAt)}`}>
+              <span className="relay-arrow">⇢</span>
+              relais de <strong>{from?.agentName ?? "agent supprimé"}</strong>
+              {" "}(« {from?.task.title ?? "étape supprimée"} »)
+              {handoff.summary && <> : <code>{handoff.summary}</code></>}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {task.result && <pre className="task-result">{task.result}</pre>}
       {task.error && <pre className="task-error">{task.error}</pre>}
