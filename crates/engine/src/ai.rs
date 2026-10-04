@@ -1,6 +1,6 @@
 //! Construction du registre de fournisseurs depuis la base.
 
-use atelier_providers::{claude_code::ClaudeCode, ollama::Ollama, ProviderRegistry, Route};
+use atelier_providers::{claude_code::ClaudeCode, ollama::Ollama, openai::{OpenAi, DEFAULT_OPENAI_URL}, ProviderRegistry, Route};
 use atelier_store::{repo, Db};
 use atelier_tools::env::ShellEnv;
 use std::path::PathBuf;
@@ -21,6 +21,11 @@ pub async fn registry_from_db(db: &Db, env: &ShellEnv) -> anyhow::Result<Provide
             "ollama" => {
                 let url = p.base_url.unwrap_or_else(|| "http://127.0.0.1:11434".into());
                 registry = registry.with_provider(p.id, Arc::new(Ollama::new(url)));
+            }
+            "openai" => {
+                let url = p.base_url.clone().unwrap_or_else(|| DEFAULT_OPENAI_URL.into());
+                let key = repo::providers::api_key(db, &p.id).await?;
+                registry = registry.with_provider(p.id, Arc::new(OpenAi::new(url, key)));
             }
             other => tracing::warn!("type de fournisseur inconnu ignoré : {other}"),
         }

@@ -8,11 +8,15 @@ use ts_rs::TS;
 #[ts(export)]
 pub struct ProviderConfig {
     pub id: String,
-    /// "claude-code" | "ollama"
+    /// "claude-code" | "ollama" | "openai"
     pub kind: String,
     pub label: String,
     pub base_url: Option<String>,
     pub enabled: bool,
+    /// Une clé d'API est enregistrée. La clé elle-même ne sort jamais du
+    /// moteur ; ce champ est ignoré à l'enregistrement.
+    #[serde(default)]
+    pub has_key: bool,
 }
 
 /// Alias de modèle → fournisseur + modèle. C'est ce qui permet de changer

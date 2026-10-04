@@ -75,6 +75,9 @@ export const api = {
   listProviderConfigs: () => invoke<ProviderConfig[]>("list_provider_configs"),
   listModelRoutes: () => invoke<ModelRoute[]>("list_model_routes"),
   saveProvider: (provider: ProviderConfig) => invoke<ProviderConfig>("save_provider", { provider }),
+  /** `null` efface la clé. La clé n'est jamais relue. */
+  saveProviderKey: (providerId: string, key: string | null) =>
+    invoke<ProviderConfig>("save_provider_key", { providerId, key }),
   saveRoute: (route: ModelRoute) => invoke<ModelRoute>("save_route", { route }),
   deleteRoute: (modelRef: string) => invoke<void>("delete_route", { modelRef }),
   testRoute: (modelRef: string) => invoke<RouteTest>("test_route", { modelRef }),

@@ -130,3 +130,9 @@ pub async fn delete_agent_skill(state: State<'_, AppState>, slug: String) -> Cmd
 pub async fn draft_agent_skill(state: State<'_, AppState>, role: String, project_id: ProjectId) -> CmdResult<String> {
     state.engine.draft_agent_skill(&role, &project_id).await.map_err(err)
 }
+
+/// Clé d'API d'un fournisseur ; `None` l'efface. Jamais relue par l'interface.
+#[tauri::command]
+pub async fn save_provider_key(state: State<'_, AppState>, provider_id: String, key: Option<String>) -> CmdResult<ProviderConfig> {
+    state.engine.save_provider_key(&provider_id, key).await.map_err(err)
+}

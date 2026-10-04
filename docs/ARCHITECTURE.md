@@ -348,6 +348,13 @@ fournisseur + modèle, avec un **repli explicite** par route.
 | `classify.fast` | Ollama `llama3.2` | aiguillage des demandes | `reasoning.default` |
 | `summarize.fast` | Ollama `llama3.2` | résumés, mémoire (phase 4) | `reasoning.default` |
 
+**OpenAI** (`crates/providers/src/openai.rs`) est un troisième fournisseur,
+désactivé par défaut et sans route : facturé à l'usage, il ne sert que si
+l'utilisateur fait pointer un alias dessus. Clé saisie dans Réglages › IA,
+stockée en base locale, jamais renvoyée à l'interface. Erreurs typées :
+clé absente ou refusée → `Unauthorized` (aucun repli), quota → `RateLimited`
+(aucun repli), 5xx ou injoignable → `Unavailable` (repli de la route).
+
 **Claude Code CLI comme cerveau sans mains.** Appelé en `claude -p` avec
 `--tools ""` : il ne dispose d'aucun outil et n'exécute rien. Il renvoie
 une décision JSON validée par schéma ; l'action passe par la porte de

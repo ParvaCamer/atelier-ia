@@ -120,8 +120,9 @@ const ROUTES = [
   { modelRef: "summarize.fast", providerId: "ollama", model: "llama3.2", maxTokens: 2048, temperature: 0.2, fallbackRef: "reasoning.default" },
 ];
 const PROVIDERS = [
-  { id: "claude-code", kind: "claude-code", label: "Claude Code (abonnement)", baseUrl: null, enabled: true },
-  { id: "ollama", kind: "ollama", label: "Ollama (local)", baseUrl: "http://127.0.0.1:11434", enabled: true },
+  { id: "claude-code", kind: "claude-code", label: "Claude Code (abonnement)", baseUrl: null, enabled: true, hasKey: false },
+  { id: "ollama", kind: "ollama", label: "Ollama (local)", baseUrl: "http://127.0.0.1:11434", enabled: true, hasKey: false },
+  { id: "openai", kind: "openai", label: "OpenAI (clé d'API)", baseUrl: "https://api.openai.com/v1", enabled: false, hasKey: false },
 ];
 let SETTINGS = { startOllamaWithApp: false };
 const WORKFLOWS: Record<string, any>[] = [{
@@ -297,13 +298,27 @@ export function installDevMock() {
       case "check_workflow": return mockCheck(args.workflow);
       case "list_provider_configs": return PROVIDERS;
       case "list_model_routes": return ROUTES;
-      case "save_provider": return args.provider;
+      case "save_provider": {
+        const i = PROVIDERS.findIndex((x) => x.id === args.provider.id);
+        PROVIDERS[i] = { ...args.provider, hasKey: PROVIDERS[i].hasKey };
+        return PROVIDERS[i];
+      }
+      case "save_provider_key": {
+        const p = PROVIDERS.find((x) => x.id === args.providerId)!;
+        if (p.kind !== "openai") throw `${p.label} n'utilise pas de clé d'API`;
+        if (args.key && /\s/.test(args.key.trim())) throw `la clé d'API de ${p.label} contient des espaces : recopie-la sans retour à la ligne`;
+        p.hasKey = !!args.key?.trim();
+        return p;
+      }
       case "save_route": return args.route;
       case "delete_route": throw "« reasoning.high » est utilisé directement par l'orchestrateur";
       case "test_route": return { servedBy: "ollama/llama3.2", latencyMs: 1840 };
       case "provider_health": return [
         { providerId: "claude-code", state: "ok", detail: "connecté · abonnement pro", models: [] },
         { providerId: "ollama", state: "ok", detail: "joignable · 1 modèle(s)", models: ["llama3.2:latest"] },
+        PROVIDERS[2].hasKey
+          ? { providerId: "openai", state: "ok", detail: "clé acceptée · 2 modèle(s)", models: ["gpt-4o", "gpt-4o-mini"] }
+          : { providerId: "openai", state: "unavailable", detail: "clé d'API absente — saisis-la ci-dessous", models: [] },
       ];
       case "start_ollama": return null;
       case "get_settings": return SETTINGS;

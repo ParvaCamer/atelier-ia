@@ -26,6 +26,7 @@ export function AiPanel() {
   const job = useJob();
 
   const ollamaModels = health.find((h) => h.providerId === "ollama")?.models ?? [];
+  const openaiModels = health.find((h) => providers.find((p) => p.id === h.providerId)?.kind === "openai")?.models ?? [];
 
   return (
     <div className="ai">
@@ -64,6 +65,7 @@ export function AiPanel() {
       </p>
 
       <datalist id="models-ollama">{ollamaModels.map((m) => <option key={m} value={m.replace(/:latest$/, "")} />)}</datalist>
+      <datalist id="models-openai">{openaiModels.map((m) => <option key={m} value={m} />)}</datalist>
       <datalist id="models-claude">{["sonnet", "opus", "haiku"].map((m) => <option key={m} value={m} />)}</datalist>
 
       <div className="routes">
@@ -88,8 +90,15 @@ function ProviderCard({ provider }: { provider: ProviderConfig }) {
   const refreshHealth = useConfig((s) => s.refreshHealth);
   const afterSave = useConfig((s) => s.afterSave);
   const [url, setUrl] = useState(provider.baseUrl ?? "");
+  const [key, setKey] = useState("");
   const job = useJob();
   const isOllama = provider.kind === "ollama";
+  const isOpenAi = provider.kind === "openai";
+
+  const saveKey = async (value: string | null) => {
+    const saved = await job.run(() => api.saveProviderKey(provider.id, value), value ? "Clé enregistrée." : "Clé effacée.");
+    if (saved) { setKey(""); await afterSave(); }
+  };
 
   const save = async (p: ProviderConfig) => {
     const saved = await job.run(() => api.saveProvider(p), "Enregistré.");
@@ -107,16 +116,21 @@ function ProviderCard({ provider }: { provider: ProviderConfig }) {
       {provider.kind === "claude-code" && (
         <div className="provider-note">Usage personnel uniquement. Aucun outil : Claude Code décide, Atelier exécute.</div>
       )}
+      {isOpenAi && (
+        <div className="provider-note">
+          Facturé à l'usage par OpenAI, en plus de tout abonnement. La clé reste sur cette machine et n'est jamais réaffichée.
+        </div>
+      )}
       {isOllama && h && h.models.length > 0 && (
         <div className="chips">{h.models.map((m) => <code key={m}>{m}</code>)}</div>
       )}
       <div className="provider-actions">
         <Toggle checked={provider.enabled} onChange={(enabled) => save({ ...provider, enabled })} label="Activé" />
-        {isOllama && (
+        {(isOllama || isOpenAi) && (
           <>
-            <Text mono value={url} onChange={setUrl} placeholder="http://127.0.0.1:11434" />
+            <Text mono value={url} onChange={setUrl} placeholder={isOllama ? "http://127.0.0.1:11434" : "https://api.openai.com/v1"} />
             {url !== (provider.baseUrl ?? "") && <button className="btn small" onClick={() => save({ ...provider, baseUrl: url })}>Enregistrer</button>}
-            {h?.state === "unavailable" && provider.enabled && (
+            {isOllama && h?.state === "unavailable" && provider.enabled && (
               <button
                 className="btn small"
                 disabled={job.busy}
@@ -128,6 +142,18 @@ function ProviderCard({ provider }: { provider: ProviderConfig }) {
           </>
         )}
       </div>
+      {isOpenAi && (
+        <div className="provider-actions">
+          <input
+            className="input" data-mono type="password" autoComplete="off" value={key}
+            aria-label="Clé d'API OpenAI"
+            placeholder={provider.hasKey ? "clé enregistrée — saisir pour la remplacer" : "sk-…"}
+            onChange={(e) => setKey(e.target.value)}
+          />
+          <button className="btn small" disabled={!key.trim() || job.busy} onClick={() => void saveKey(key)}>Enregistrer la clé</button>
+          {provider.hasKey && <DangerButton label="Effacer la clé" confirmLabel="Effacer" onConfirm={() => void saveKey(null)} disabled={job.busy} />}
+        </div>
+      )}
       <FeedbackLine error={job.error} ok={job.ok} />
     </div>
   );
@@ -156,8 +182,8 @@ function RouteRow({ route, isNew, onDone }: { route: ModelRoute; isNew?: boolean
         </div>
         <Select value={draft.providerId} options={providers.map((p) => ({ value: p.id, label: p.label }))} onChange={(providerId) => patch({ providerId })} />
         <input
-          className="input" data-mono list={provider?.kind === "ollama" ? "models-ollama" : "models-claude"}
-          value={draft.model} placeholder={provider?.kind === "ollama" ? "llama3.2" : "défaut du compte"}
+          className="input" data-mono list={`models-${provider?.kind === "claude-code" ? "claude" : provider?.kind}`}
+          value={draft.model} placeholder={provider?.kind === "ollama" ? "llama3.2" : provider?.kind === "openai" ? "gpt-4o-mini" : "défaut du compte"}
           onChange={(e) => patch({ model: e.target.value })}
         />
         <Select

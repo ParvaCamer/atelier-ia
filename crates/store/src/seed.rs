@@ -399,8 +399,11 @@ pub async fn ensure_builtin_workflows(db: &Db) -> Result<()> {
 pub async fn ensure_builtin_providers(db: &Db) -> Result<()> {
     use repo::providers::{insert_provider_if_missing, insert_route_if_missing};
 
-    insert_provider_if_missing(db, "claude-code", "claude-code", "Claude Code (abonnement)", None).await?;
-    insert_provider_if_missing(db, "ollama", "ollama", "Ollama (local)", Some("http://127.0.0.1:11434")).await?;
+    insert_provider_if_missing(db, "claude-code", "claude-code", "Claude Code (abonnement)", None, true).await?;
+    insert_provider_if_missing(db, "ollama", "ollama", "Ollama (local)", Some("http://127.0.0.1:11434"), true).await?;
+    // Facturé à l'usage : désactivé tant que l'utilisateur ne l'a pas choisi,
+    // et aucune route n'y pointe par défaut.
+    insert_provider_if_missing(db, "openai", "openai", "OpenAI (clé d'API)", Some("https://api.openai.com/v1"), false).await?;
 
     let route = |model_ref: &str, provider: &str, model: &str, max_tokens: i64, temperature: f64, fallback: Option<&str>| ModelRoute {
         model_ref: model_ref.into(),

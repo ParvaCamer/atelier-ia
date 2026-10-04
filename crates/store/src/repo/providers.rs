@@ -1,6 +1,7 @@
 //! Configuration des fournisseurs IA et routes de modèles.
-//! Aucune clé API ici : le fournisseur Claude Code utilise la session du CLI,
-//! Ollama n'en demande pas. Une future clé irait dans le trousseau de l'OS.
+//! Claude Code utilise la session du CLI, Ollama n'a pas de clé. La clé
+//! d'OpenAI est en base locale et ne sort que par `api_key`, lu par le
+//! moteur pour construire le fournisseur : `list_providers` ne la renvoie pas.
 
 use crate::{db::Db, error::Result};
 use atelier_domain::{ModelRoute, ProviderConfig};
@@ -17,8 +18,23 @@ pub async fn list_providers(db: &Db) -> Result<Vec<ProviderConfig>> {
             label: r.get("label"),
             base_url: r.get("base_url"),
             enabled: r.get::<i64, _>("enabled") != 0,
+            has_key: r.get::<Option<String>, _>("api_key").is_some_and(|k| !k.is_empty()),
         })
         .collect())
+}
+
+pub async fn api_key(db: &Db, id: &str) -> Result<Option<String>> {
+    let key: Option<Option<String>> = sqlx::query_scalar("SELECT api_key FROM provider_configs WHERE id = ?")
+        .bind(id)
+        .fetch_optional(db.pool())
+        .await?;
+    Ok(key.flatten().filter(|k| !k.is_empty()))
+}
+
+/// `None` efface la clé.
+pub async fn set_api_key(db: &Db, id: &str, key: Option<&str>) -> Result<()> {
+    sqlx::query("UPDATE provider_configs SET api_key = ? WHERE id = ?").bind(key).bind(id).execute(db.pool()).await?;
+    Ok(())
 }
 
 pub async fn list_routes(db: &Db) -> Result<Vec<ModelRoute>> {
@@ -37,15 +53,16 @@ pub async fn list_routes(db: &Db) -> Result<Vec<ModelRoute>> {
 }
 
 /// N'écrase jamais une configuration existante : l'utilisateur a pu la modifier.
-pub async fn insert_provider_if_missing(db: &Db, id: &str, kind: &str, label: &str, base_url: Option<&str>) -> Result<()> {
+pub async fn insert_provider_if_missing(db: &Db, id: &str, kind: &str, label: &str, base_url: Option<&str>, enabled: bool) -> Result<()> {
     sqlx::query(
         "INSERT OR IGNORE INTO provider_configs (id, kind, label, base_url, key_ref, enabled, created_at)
-         VALUES (?,?,?,?,NULL,1,?)",
+         VALUES (?,?,?,?,NULL,?,?)",
     )
     .bind(id)
     .bind(kind)
     .bind(label)
     .bind(base_url)
+    .bind(enabled as i64)
     .bind(Utc::now().to_rfc3339())
     .execute(db.pool())
     .await?;

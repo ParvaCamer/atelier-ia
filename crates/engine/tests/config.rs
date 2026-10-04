@@ -449,3 +449,86 @@ async fn brouillon_de_skill_nettoye_sans_ecriture() {
     assert!(err.contains("vide") && err.contains("Testeur"), "{err}");
     assert_eq!(e.list_agent_skills().await.unwrap().len(), 2, "toujours rien d'écrit après un échec");
 }
+
+// =====================================================================
+// Fournisseur OpenAI — serveur HTTP simulé, aucun appel réseau réel
+// =====================================================================
+
+/// Répond `body` (JSON, statut 200) à toute requête et compte les appels.
+async fn fake_openai(body: serde_json::Value) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/v1", listener.local_addr().unwrap());
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = calls.clone();
+    tokio::spawn(async move {
+        while let Ok((mut sock, _)) = listener.accept().await {
+            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let body = body.to_string();
+            tokio::spawn(async move {
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 8192];
+                loop {
+                    let n = sock.read(&mut chunk).await.unwrap_or(0);
+                    if n == 0 { break; }
+                    buf.extend_from_slice(&chunk[..n]);
+                    let text = String::from_utf8_lossy(&buf).to_string();
+                    if let Some(end) = text.find("\r\n\r\n") {
+                        let len = text.lines()
+                            .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                            .unwrap_or(0);
+                        if buf.len() >= end + 4 + len { break; }
+                    }
+                }
+                let reply = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+                let _ = sock.write_all(reply.as_bytes()).await;
+                let _ = sock.shutdown().await;
+            });
+        }
+    });
+    (url, calls)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn alias_redirige_vers_openai_sans_toucher_au_reste() {
+    let e = engine().await;
+    let (url, calls) = fake_openai(serde_json::json!({
+        "model": "gpt-test", "choices": [{ "message": { "content": "{\"ok\": true}" } }],
+        "usage": { "prompt_tokens": 5, "completion_tokens": 2 }
+    })).await;
+
+    let mut openai = e.list_provider_configs().await.unwrap().into_iter().find(|p| p.kind == "openai").unwrap();
+    assert!(!openai.enabled, "facturé à l'usage : désactivé tant qu'on ne l'a pas choisi");
+    assert!(!openai.has_key);
+    openai.enabled = true;
+    openai.base_url = Some(format!("{url}/"));
+    e.save_provider(openai.clone()).await.unwrap();
+
+    // La clé n'est jamais renvoyée : seul `has_key` sort du moteur.
+    let saved = e.save_provider_key("openai", Some("  cle-secrete-de-test  ".into())).await.unwrap();
+    assert!(saved.has_key);
+    let listed = serde_json::to_string(&e.list_provider_configs().await.unwrap()).unwrap();
+    assert!(!listed.contains("cle-secrete-de-test"), "la clé a fui vers l'interface : {listed}");
+    assert!(e.save_provider_key("claude-code", Some("x".into())).await.unwrap_err().to_string().contains("n'utilise pas de clé"));
+    assert!(e.save_provider_key("openai", Some("deux mots".into())).await.unwrap_err().to_string().contains("espaces"));
+
+    // Un alias existant pointe désormais sur OpenAI : aucun agent ni aucune
+    // autre route n'est touché.
+    let mut route = e.list_model_routes().await.unwrap().into_iter().find(|r| r.model_ref == "reasoning.high").unwrap();
+    route.provider_id = "openai".into();
+    route.model = String::new();
+    assert!(e.save_route(route.clone()).await.unwrap_err().to_string().contains("nom de modèle"));
+    route.model = "gpt-test".into();
+    e.save_route(route).await.unwrap();
+
+    let test = e.test_route("reasoning.high").await.unwrap();
+    assert_eq!(test.served_by, "openai/gpt-test");
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(e.providers().route("reasoning.default").unwrap().provider_id, "claude-code", "les autres alias ne bougent pas");
+
+    // Clé effacée : l'appel échoue explicitement, sans repli silencieux.
+    e.save_provider_key("openai", None).await.unwrap();
+    let err = e.test_route("reasoning.high").await.unwrap_err().to_string();
+    assert!(err.contains("Réglages › IA"), "{err}");
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1, "aucun appel sans clé");
+}

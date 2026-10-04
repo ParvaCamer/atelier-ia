@@ -12,6 +12,7 @@
 
 pub mod claude_code;
 pub mod ollama;
+pub mod openai;
 pub mod registry;
 
 pub use registry::{ProviderRegistry, Route};
@@ -79,6 +80,9 @@ pub enum ProviderError {
     Unavailable(String),
     #[error("alias de modèle inconnu : {0}")]
     UnknownRoute(String),
+    /// Clé absente ou refusée : jamais de repli, l'utilisateur doit agir.
+    #[error("accès refusé : {0}")]
+    Unauthorized(String),
     #[error("limite d'utilisation atteinte : {0}")]
     RateLimited(String),
     #[error("réponse invalide : {0}")]
@@ -93,7 +97,7 @@ pub enum ProviderError {
 
 #[async_trait]
 pub trait Provider: Send + Sync {
-    /// Identifiant technique : "claude-code", "ollama"…
+    /// Identifiant technique : "claude-code", "ollama", "openai"…
     fn kind(&self) -> &'static str;
 
     async fn complete(

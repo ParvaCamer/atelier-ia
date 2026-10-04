@@ -41,6 +41,7 @@ aucun accès. Les droits sont accordés ailleurs, par l'utilisateur.\n\
 - Pas de détail propre à un projet précis (noms de fichiers, technologies imposées).\n\
 - Moins de 3 500 caractères : ce texte est relu à chaque étape de chaque tâche.";
 pub const DEFAULT_OLLAMA_URL: &str = "http://127.0.0.1:11434";
+use atelier_providers::openai::DEFAULT_OPENAI_URL;
 
 /// Alias appelés directement par l'orchestrateur : modifiables, pas supprimables.
 pub const RESERVED_ROUTES: &[&str] = &["reasoning.high", "reasoning.default", "classify.fast"];
@@ -601,14 +602,16 @@ impl Engine {
             .find(|p| p.id == draft.id)
             .ok_or_else(|| anyhow::anyhow!("fournisseur inconnu"))?;
 
-        let base_url = if existing.kind == "ollama" {
-            let url = draft.base_url.as_deref().map(str::trim).filter(|u| !u.is_empty()).unwrap_or(DEFAULT_OLLAMA_URL);
-            if !(url.starts_with("http://") || url.starts_with("https://")) {
-                anyhow::bail!("l'adresse d'Ollama doit commencer par http:// ou https://");
+        let base_url = match existing.kind.as_str() {
+            "ollama" | "openai" => {
+                let default = if existing.kind == "ollama" { DEFAULT_OLLAMA_URL } else { DEFAULT_OPENAI_URL };
+                let url = draft.base_url.as_deref().map(str::trim).filter(|u| !u.is_empty()).unwrap_or(default);
+                if !(url.starts_with("http://") || url.starts_with("https://")) {
+                    anyhow::bail!("l'adresse de {} doit commencer par http:// ou https://", existing.label);
+                }
+                Some(url.trim_end_matches('/').to_string())
             }
-            Some(url.trim_end_matches('/').to_string())
-        } else {
-            existing.base_url.clone()
+            _ => existing.base_url.clone(),
         };
 
         let provider = ProviderConfig {
@@ -617,10 +620,33 @@ impl Engine {
             label: Some(draft.label.trim().to_string()).filter(|l| !l.is_empty()).unwrap_or(existing.label),
             base_url,
             enabled: draft.enabled,
+            has_key: existing.has_key,
         };
         repo::providers::update_provider(self.db(), &provider).await?;
         self.reload_providers().await?;
         Ok(provider)
+    }
+
+    /// Enregistre (ou efface, avec `None` ou une chaîne vide) la clé d'API
+    /// d'un fournisseur qui en exige une. La clé n'est jamais renvoyée.
+    pub async fn save_provider_key(&self, id: &str, key: Option<String>) -> anyhow::Result<ProviderConfig> {
+        let provider = repo::providers::list_providers(self.db())
+            .await?
+            .into_iter()
+            .find(|p| p.id == id)
+            .ok_or_else(|| anyhow::anyhow!("fournisseur « {id} » inconnu"))?;
+        if provider.kind != "openai" {
+            anyhow::bail!("{} n'utilise pas de clé d'API", provider.label);
+        }
+        let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
+        if let Some(k) = &key {
+            if k.contains(char::is_whitespace) {
+                anyhow::bail!("la clé d'API de {} contient des espaces : recopie-la sans retour à la ligne", provider.label);
+            }
+        }
+        repo::providers::set_api_key(self.db(), id, key.as_deref()).await?;
+        self.reload_providers().await?;
+        Ok(ProviderConfig { has_key: key.is_some(), ..provider })
     }
 
     pub async fn save_route(&self, draft: ModelRoute) -> anyhow::Result<ModelRoute> {
@@ -636,6 +662,9 @@ impl Engine {
         let model = draft.model.trim().to_string();
         if provider.kind == "ollama" && model.is_empty() {
             anyhow::bail!("Ollama exige un nom de modèle (ex. llama3.2)");
+        }
+        if provider.kind == "openai" && model.is_empty() {
+            anyhow::bail!("OpenAI exige un nom de modèle (ex. gpt-4o-mini)");
         }
         if !(1..=128_000).contains(&draft.max_tokens) {
             anyhow::bail!("tokens maximum : entre 1 et 128 000");
@@ -771,6 +800,12 @@ impl Engine {
                         let wanted: Vec<&str> = routes.iter().filter(|r| r.provider_id == p.id).map(|r| r.model.as_str()).collect();
                         ollama_health(&p.id, url, &wanted).await
                     }
+                    "openai" => {
+                        let url = p.base_url.as_deref().unwrap_or(DEFAULT_OPENAI_URL);
+                        let key = repo::providers::api_key(self.db(), &p.id).await?;
+                        let wanted: Vec<&str> = routes.iter().filter(|r| r.provider_id == p.id).map(|r| r.model.as_str()).collect();
+                        openai_health(&p.id, url, key, &wanted).await
+                    }
                     other => health(&p.id, HealthState::Unavailable, &format!("type inconnu « {other} »"), vec![]),
                 }
             };
@@ -896,6 +931,26 @@ async fn ollama_health(id: &str, url: &str, wanted: &[&str]) -> ProviderHealth {
                 health(id, HealthState::Degraded, &format!("modèle(s) absent(s) : {} — lance {cmd}", missing.join(", ")), models)
             }
         }
+    }
+}
+
+async fn openai_health(id: &str, url: &str, key: Option<String>, wanted: &[&str]) -> ProviderHealth {
+    use atelier_providers::{openai::OpenAi, ProviderError};
+    if key.is_none() {
+        return health(id, HealthState::Unavailable, "clé d'API absente — saisis-la ci-dessous", vec![]);
+    }
+    match OpenAi::new(url, key).models().await {
+        Ok(models) => {
+            let missing: Vec<&str> = wanted.iter().copied().filter(|m| !m.is_empty() && !models.iter().any(|x| x == m)).collect();
+            if missing.is_empty() {
+                health(id, HealthState::Ok, &format!("clé acceptée · {} modèle(s)", models.len()), models)
+            } else {
+                health(id, HealthState::Degraded, &format!("modèle(s) inaccessible(s) avec cette clé : {}", missing.join(", ")), models)
+            }
+        }
+        Err(ProviderError::Unauthorized(_)) => health(id, HealthState::Degraded, "clé refusée par OpenAI — vérifie-la ci-dessous", vec![]),
+        Err(ProviderError::Unavailable(e)) => health(id, HealthState::Unavailable, &e, vec![]),
+        Err(e) => health(id, HealthState::Degraded, &e.to_string(), vec![]),
     }
 }
 

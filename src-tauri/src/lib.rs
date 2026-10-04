@@ -84,6 +84,7 @@ pub fn run() {
             commands::config::list_provider_configs,
             commands::config::list_model_routes,
             commands::config::save_provider,
+            commands::config::save_provider_key,
             commands::config::save_route,
             commands::config::delete_route,
             commands::config::test_route,

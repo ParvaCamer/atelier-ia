@@ -2,6 +2,11 @@
 
 export type ProviderConfig = { id: string, 
 /**
- * "claude-code" | "ollama"
+ * "claude-code" | "ollama" | "openai"
  */
-kind: string, label: string, baseUrl: string | null, enabled: boolean, };
+kind: string, label: string, baseUrl: string | null, enabled: boolean, 
+/**
+ * Une clé d'API est enregistrée. La clé elle-même ne sort jamais du
+ * moteur ; ce champ est ignoré à l'enregistrement.
+ */
+hasKey: boolean, };
