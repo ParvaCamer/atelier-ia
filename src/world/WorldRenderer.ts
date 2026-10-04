@@ -13,6 +13,7 @@ import { useConfig } from "../state/config";
 import { useHistory } from "../state/history";
 import { useWorld } from "../state/store";
 import { AgentLayer } from "./AgentLayer";
+import { OrchestratorLayer } from "./OrchestratorLayer";
 import { ConveyorLayer } from "./ConveyorLayer";
 import { Visitor, type WalkInput } from "./Visitor";
 import type { Box } from "./nav";
@@ -54,6 +55,7 @@ export class WorldRenderer {
   private scene = new Scene();
   private camera: PerspectiveCamera;
   private agents: AgentLayer;
+  private orchestrator: OrchestratorLayer;
   private conveyors: ConveyorLayer;
   private visitor = new Visitor();
   private mode: ViewMode = "aerial";
@@ -110,6 +112,7 @@ export class WorldRenderer {
     this.camera = new PerspectiveCamera(42, 1, 0.5, 500);
 
     this.agents = new AgentLayer(this.scene);
+    this.orchestrator = new OrchestratorLayer(this.scene);
     this.conveyors = new ConveyorLayer(this.scene);
     this.scene.add(this.visitor.group);
     this.scenery = new SceneryLayer(this.scene);
@@ -144,7 +147,8 @@ export class WorldRenderer {
       this.lit = -1;
       this.applyNight();
       const zones = [...this.zones.values()];
-      this.obstacles = zones.flatMap((z) => z.obstacles);
+      // L'estrade centrale se contourne : sinon agents et visiteur la traversent.
+      this.obstacles = [...zones.flatMap((z) => z.obstacles), this.orchestrator.obstacle()];
       this.platforms = zones.map(({ project: { zone } }) => ({
         minX: zone.x - zone.width / 2, maxX: zone.x + zone.width / 2, minZ: zone.z - zone.depth / 2, maxZ: zone.z + zone.depth / 2,
       }));
@@ -441,9 +445,10 @@ export class WorldRenderer {
         this.updateCamera(dt);
       }
       const agentsMoving = this.agents.update(dt, this.elapsed, this.camera.position);
+      const deciding = this.orchestrator.update(dt, this.elapsed);
       const { relays, snapshot } = useWorld.getState();
       const relaying = this.conveyors.update(this.elapsed, now, snapshot.runs, relays);
-      this.lively = agentsMoving || relaying || visitorMoving;
+      this.lively = agentsMoving || relaying || visitorMoving || deciding;
       const atPost = (id: string) => this.agents.isAtDesk(id);
       this.scenery.updateScreens(atPost, this.accentByProject());
       this.scenery.animate(this.elapsed, atPost);
@@ -459,6 +464,7 @@ export class WorldRenderer {
     if (snapshot.tick === this.lastTick) return;
     this.lastTick = snapshot.tick;
     this.agents.sync(snapshot.agents, agentsById, this.zones);
+    this.orchestrator.sync(snapshot.orchestrator, this.zones, this.camera.position);
   }
 
   private accents = new Map<string, string>();

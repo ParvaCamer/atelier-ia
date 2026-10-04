@@ -146,17 +146,34 @@ fn plan_schema() -> Value {
 
 impl Engine {
     pub async fn submit_request(&self, text: &str, project_hint: Option<&ProjectId>) -> anyhow::Result<RunId> {
+        let out = self.plan_request(text, project_hint).await;
+        // Un échec laisse l'orchestrateur au repos : sans ça, il resterait
+        // figé « en planification » jusqu'à la demande suivante.
+        if out.is_err() {
+            self.set_orchestrator(OrchestratorStatus::Idle, None, None).await;
+        }
+        out
+    }
+
+    async fn plan_request(&self, text: &str, project_hint: Option<&ProjectId>) -> anyhow::Result<RunId> {
         let text = text.trim();
         if text.is_empty() {
             anyhow::bail!("demande vide");
         }
         let cancel = CancellationToken::new();
         self.orchestrator_log(None, format!("◆ demande : « {text} »"));
+        self.set_orchestrator(OrchestratorStatus::Routing, None, Some(format!("« {text} »"))).await;
         // Appels faits avant que le run existe : rattachés à lui une fois créé.
         let mut spent: Vec<String> = Vec::new();
 
         let project = self.route_request(text, project_hint, &cancel, &mut spent).await?;
         self.orchestrator_log(Some(&project.id), format!("◆ projet retenu : {}", project.name));
+        self.set_orchestrator(
+            OrchestratorStatus::Planning,
+            Some(project.id.clone()),
+            Some(format!("planifie pour {}", project.name)),
+        )
+        .await;
 
         let agents: Vec<Agent> = repo::agents::list(self.db())
             .await?
@@ -226,6 +243,12 @@ impl Engine {
                         }
                     };
                     repo::usage::attach_to_run(self.db(), &spent, &run).await?;
+                    self.set_orchestrator(
+                        OrchestratorStatus::Supervising,
+                        Some(project.id.clone()),
+                        Some(format!("suit « {} »", text)),
+                    )
+                    .await;
                     return Ok(run);
                 }
                 Err(e) => {

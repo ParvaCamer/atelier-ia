@@ -29,6 +29,37 @@ pub struct WorldSnapshot {
     pub agents: Vec<AgentView>,
     pub runs: Vec<RunView>,
     pub pending_approvals: u32,
+    pub orchestrator: OrchestratorView,
+}
+
+/// L'orchestrateur n'est pas un agent : il n'appartient à aucun projet, ne
+/// manipule aucun outil et n'a aucune permission. Il décide — et cette
+/// décision mérite d'être visible. Comme pour les agents, **aucune
+/// coordonnée ici** : la 3D choisit où et comment le montrer.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct OrchestratorView {
+    pub status: OrchestratorStatus,
+    /// Projet concerné par la décision en cours, quand il est déjà connu.
+    pub project_id: Option<ProjectId>,
+    /// Dernière décision, lisible telle quelle.
+    pub detail: Option<String>,
+    pub since: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export)]
+pub enum OrchestratorStatus {
+    #[default]
+    Idle,
+    /// Choisit le projet et l'équipe concernés par une demande.
+    Routing,
+    /// Décompose la demande en étapes.
+    Planning,
+    /// Suit les étapes qu'il a lancées.
+    Supervising,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -101,6 +132,12 @@ impl WorldSnapshot {
             agents: Vec::new(),
             runs: Vec::new(),
             pending_approvals: 0,
+            orchestrator: OrchestratorView {
+                status: OrchestratorStatus::Idle,
+                project_id: None,
+                detail: None,
+                since: Utc::now(),
+            },
         }
     }
 }

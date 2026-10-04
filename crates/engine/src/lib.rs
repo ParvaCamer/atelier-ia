@@ -228,6 +228,17 @@ impl Engine {
     // divergence possible entre ce que voit l'UI et ce que croit le moteur.
     // ---------------------------------------------------------------
 
+    /// État visible de l'orchestrateur. Il n'a pas de tâche : son activité
+    /// est une décision, pas une exécution.
+    pub(crate) async fn set_orchestrator(
+        &self,
+        status: OrchestratorStatus,
+        project: Option<ProjectId>,
+        detail: Option<String>,
+    ) {
+        self.world.write().await.set_orchestrator(status, project, detail);
+    }
+
     pub async fn set_agent_state(&self, id: &AgentId, status: AgentStatus, activity: Activity) {
         if let Some(rt) = self.world.write().await.agent_mut(id) {
             rt.status = status;

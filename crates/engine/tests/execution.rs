@@ -437,3 +437,39 @@ async fn relais_consigne_entre_deux_etapes() {
     wait_for(&w, &first_task(&w, &run).await.id, TaskStatus::Completed).await;
     assert!(w.engine.run_detail(&run).await.unwrap().handoffs.is_empty());
 }
+
+/// L'orchestrateur a un état visible, et il doit redescendre tout seul :
+/// resté « en supervision » devant un monde vide, il mentirait.
+#[test]
+fn orchestrateur_revient_au_repos_quand_plus_rien_ne_tourne() {
+    use atelier_engine::world::WorldState;
+
+    let mut world = WorldState::new();
+    assert_eq!(world.orchestrator().status, OrchestratorStatus::Idle);
+
+    world.set_orchestrator(OrchestratorStatus::Routing, None, Some("« fais un truc »".into()));
+    let since = world.orchestrator().since;
+    assert_eq!(world.orchestrator().detail.as_deref(), Some("« fais un truc »"));
+
+    // Même statut redonné : l'horodatage ne bouge pas, sinon la 3D
+    // relancerait son animation à chaque tick.
+    world.set_orchestrator(OrchestratorStatus::Routing, None, None);
+    assert_eq!(world.orchestrator().since, since);
+
+    let run = RunView {
+        id: RunId::new(),
+        project_id: ProjectId::new(),
+        title: "Run".into(),
+        status: RunStatus::Running,
+        total: 1,
+        done: 0,
+        steps: vec![],
+    };
+    world.set_orchestrator(OrchestratorStatus::Supervising, Some(run.project_id.clone()), None);
+    world.upsert_run(run.clone());
+    assert_eq!(world.orchestrator().status, OrchestratorStatus::Supervising);
+
+    world.drop_run(&run.id);
+    assert_eq!(world.orchestrator().status, OrchestratorStatus::Idle, "plus rien à suivre");
+    assert_eq!(world.orchestrator().project_id, None);
+}

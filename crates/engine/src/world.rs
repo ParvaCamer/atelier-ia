@@ -20,6 +20,7 @@ pub struct WorldState {
     agents: HashMap<AgentId, (ProjectId, AgentRuntime)>,
     runs: HashMap<RunId, RunView>,
     pub pending_approvals: u32,
+    orchestrator: OrchestratorView,
     /// Sans ce drapeau, une application au repos enverrait 8 snapshots
     /// identiques par seconde au frontend, pour rien.
     dirty: bool,
@@ -32,6 +33,12 @@ impl WorldState {
             agents: HashMap::new(),
             runs: HashMap::new(),
             pending_approvals: 0,
+            orchestrator: OrchestratorView {
+                status: OrchestratorStatus::Idle,
+                project_id: None,
+                detail: None,
+                since: chrono::Utc::now(),
+            },
             dirty: true,
         }
     }
@@ -70,6 +77,11 @@ impl WorldState {
 
     pub fn drop_run(&mut self, id: &RunId) {
         self.runs.remove(id);
+        // Plus rien à suivre : l'orchestrateur retourne au repos de lui-même,
+        // sinon il resterait affiché « en supervision » devant un monde vide.
+        if self.runs.is_empty() && self.orchestrator.status == OrchestratorStatus::Supervising {
+            self.set_orchestrator(OrchestratorStatus::Idle, None, None);
+        }
         self.dirty = true;
     }
 
@@ -78,6 +90,25 @@ impl WorldState {
             self.pending_approvals = n;
             self.dirty = true;
         }
+    }
+
+    /// Change l'état de l'orchestrateur. L'horodatage ne bouge que si le
+    /// statut change vraiment : la 3D s'en sert pour ses transitions, et un
+    /// `since` réécrit à chaque tick relancerait l'animation sans arrêt.
+    pub fn set_orchestrator(&mut self, status: OrchestratorStatus, project: Option<ProjectId>, detail: Option<String>) {
+        if self.orchestrator.status != status {
+            self.orchestrator.since = chrono::Utc::now();
+        }
+        self.orchestrator.status = status;
+        self.orchestrator.project_id = project;
+        if detail.is_some() {
+            self.orchestrator.detail = detail;
+        }
+        self.dirty = true;
+    }
+
+    pub fn orchestrator(&self) -> &OrchestratorView {
+        &self.orchestrator
     }
 
     pub fn touch(&mut self) {
@@ -120,6 +151,7 @@ impl WorldState {
             agents,
             runs,
             pending_approvals: self.pending_approvals,
+            orchestrator: self.orchestrator.clone(),
         }
     }
 }

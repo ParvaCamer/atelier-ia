@@ -7,7 +7,7 @@
  * aucun draw call.
  */
 import {
-  AdditiveBlending, BoxGeometry, CircleGeometry, Color, DoubleSide, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial,
+  AdditiveBlending, BoxGeometry, CircleGeometry, Color, DoubleSide, FrontSide, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial,
   MeshLambertMaterial, Object3D, Scene, Sprite, SpriteMaterial,
 } from "three";
 import { PLATFORM, PROP, PROP_DARK, SEAM } from "./palette";
@@ -153,7 +153,7 @@ export class SceneryLayer {
       if (rotorDef) {
         const rotor = new InstancedMesh(
           rotorDef.geometry,
-          new MeshLambertMaterial({ color: MACHINE_METAL, side: ROTOR_DOUBLE_SIDED.has(family) ? DoubleSide : undefined }),
+          new MeshLambertMaterial({ color: MACHINE_METAL, side: ROTOR_DOUBLE_SIDED.has(family) ? DoubleSide : FrontSide }),
           list.length,
         );
         entry.rotor = rotor;

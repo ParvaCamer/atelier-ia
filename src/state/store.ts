@@ -74,6 +74,7 @@ let initialized = false;
 
 const emptySnapshot: WorldSnapshot = {
   tick: 0, ts: new Date().toISOString(), agents: [], runs: [], pendingApprovals: 0,
+    orchestrator: { status: "idle", projectId: null, detail: null, since: new Date().toISOString() },
 };
 
 export const useWorld = create<WorldStore>((set, get) => ({

@@ -18,7 +18,7 @@ import type { AgentView, Agent } from "../ipc";
 import { APPROVAL_COLOR, ARCHETYPE_COLOR, PULSING, STATUS_COLOR, THINKING_COLOR, stationFor, type StationKind } from "./palette";
 import { HEAD_TOP, HIP_Y, SHOULDER_X, SHOULDER_Y, parts, shadowTexture } from "./parts";
 import { AGENT_RADIUS, targetFor, type Spot, type ZoneLayout } from "./layout";
-import { clampTo, nextWaypoint, pushOut } from "./nav";
+import { clampTo, nextWaypoint, pushOut, inside } from "./nav";
 
 /** Teintes fixes du pionnier : ceinture et col sombres, casque clair, sac métal. */
 const DARK = new Color("#262c34");
@@ -34,6 +34,14 @@ const ARRIVED = 0.12;
 const REPATH = 0.3;
 /** Durée de la petite célébration de fin de tâche, en secondes. */
 const CELEBRATE = 1.3;
+/**
+ * Flânerie : au repos, un agent va parfois se dégourdir les jambes.
+ * Jamais plus de trois à la fois, et de longues pauses entre deux — sans
+ * cette limite, seize agents feraient tourner le rendu en permanence et
+ * l'économie d'images au repos tomberait.
+ */
+const STROLLERS_MAX = 3;
+const STROLL_PAUSE: [number, number] = [14, 34];
 
 interface Node {
   id: string;
@@ -53,6 +61,18 @@ interface Node {
   statusColor: Color;
   /** Horloge de la scène au passage en « terminé », pour l'animation. */
   completedAt: number | null;
+  /** Point de flânerie courant ; `null` = l'agent est à son poste. */
+  wander: Spot | null;
+  /** Secondes avant la prochaine envie de bouger. */
+  wanderIn: number;
+  /** En marche vers un point de flânerie (compte dans le quota). */
+  strolling: boolean;
+}
+
+/** Pause aléatoire entre deux flâneries, en secondes. */
+function pause(): number {
+  const [a, b] = STROLL_PAUSE;
+  return a + Math.random() * (b - a);
 }
 
 /** Point d'exclamation : une barre et un point, fusionnés en une géométrie. */
@@ -69,6 +89,8 @@ export class AgentLayer {
   private readonly nodes = new Map<string, Node>();
   private order: string[] = [];
   private clock = 0;
+  /** Promeneurs en cours : borne le réveil du rendu. */
+  private strollers = 0;
   private readonly camera = new Vector3();
   /** Personnage de l'utilisateur en mode « à pied » : les agents s'écartent. */
   private visitor: Vector3 | null = null;
@@ -178,6 +200,9 @@ export class AgentLayer {
           bodyColor: new Color(ARCHETYPE_COLOR[agents.get(view.id)?.archetype ?? "dev"]),
           statusColor: new Color(STATUS_COLOR[view.status]),
           completedAt: null,
+          wander: null,
+          wanderIn: pause(),
+          strolling: false,
         };
         this.nodes.set(view.id, node);
         this.order.push(view.id);
@@ -188,8 +213,19 @@ export class AgentLayer {
       node.zone = zone;
       node.statusColor.set(STATUS_COLOR[view.status]);
       const next = targetFor(zone, view.id, station as StationKind, seat);
-      if (!next.pos.equals(node.target.pos)) node.repathIn = 0;
-      node.target = next;
+      // Un agent au repos garde son point de flânerie : sinon chaque
+      // snapshot le rappellerait à son poste et il ferait du sur-place.
+      if (view.status === "idle" && node.wander) {
+        node.target = node.wander;
+      } else {
+        if (node.strolling) {
+          this.strollers--;
+          node.strolling = false;
+        }
+        node.wander = null;
+        if (!next.pos.equals(node.target.pos)) node.repathIn = 0;
+        node.target = next;
+      }
     });
 
     // Un agent supprimé de la configuration disparaît du monde.
@@ -223,6 +259,7 @@ export class AgentLayer {
     if (cameraPos) this.camera.copy(cameraPos);
     let lively = false;
     for (const node of this.nodes.values()) {
+      this.idleLife(node, dt);
       this.steer(node, dt);
       this.separate(node, dt);
       lively = this.writeMatrices(node, time) || lively;
@@ -232,6 +269,51 @@ export class AgentLayer {
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
     return lively;
+  }
+
+  /**
+   * Vie au repos : un agent inoccupé finit par se lever, aller ailleurs
+   * dans sa zone, et y rester un moment. Purement visuel — le moteur ne
+   * sait rien de ces allées et venues, et un agent qui reçoit une tâche
+   * repart aussitôt à son poste.
+   */
+  private idleLife(node: Node, dt: number) {
+    if (node.view.status !== "idle") return;
+    const arrived = Math.hypot(node.target.pos.x - node.pos.x, node.target.pos.z - node.pos.z) <= ARRIVED;
+    if (node.strolling && arrived) {
+      node.strolling = false;
+      this.strollers--;
+      node.wanderIn = pause();
+      return;
+    }
+    if (node.strolling || !arrived) return;
+
+    node.wanderIn -= dt;
+    if (node.wanderIn > 0 || this.strollers >= STROLLERS_MAX) return;
+
+    const spot = this.strollSpot(node);
+    if (!spot) {
+      node.wanderIn = pause();
+      return;
+    }
+    node.wander = spot;
+    node.target = spot;
+    node.repathIn = 0;
+    node.strolling = true;
+    this.strollers++;
+  }
+
+  /** Un point libre dans sa zone, à l'écart des meubles. */
+  private strollSpot(node: Node): Spot | null {
+    const b = node.zone.bounds;
+    const margin = AGENT_RADIUS + 0.5;
+    for (let i = 0; i < 10; i++) {
+      const x = b.minX + margin + Math.random() * Math.max(0, b.maxX - b.minX - margin * 2);
+      const z = b.minZ + margin + Math.random() * Math.max(0, b.maxZ - b.minZ - margin * 2);
+      if (node.zone.obstacles.some((o) => inside(o, { x, z }))) continue;
+      return { pos: new Vector3(x, 0, z), facing: Math.random() * Math.PI * 2 };
+    }
+    return null;
   }
 
   private steer(node: Node, dt: number) {

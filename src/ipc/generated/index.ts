@@ -29,6 +29,8 @@ export type { MemoryScope } from "./MemoryScope";
 export type { MemoryView } from "./MemoryView";
 export type { Mode } from "./Mode";
 export type { ModelRoute } from "./ModelRoute";
+export type { OrchestratorStatus } from "./OrchestratorStatus";
+export type { OrchestratorView } from "./OrchestratorView";
 export type { Project } from "./Project";
 export type { ProjectId } from "./ProjectId";
 export type { ProviderConfig } from "./ProviderConfig";

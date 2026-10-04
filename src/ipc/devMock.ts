@@ -95,6 +95,7 @@ function snapshot(tick: number): WorldSnapshot {
     tick,
     ts: new Date().toISOString(),
     pendingApprovals: 1,
+    orchestrator: ORCHESTRATOR(),
     runs: [liveRun()],
     agents: AGENTS.map((a, i) => {
       let [status, activity] = STATES[i % STATES.length];
@@ -166,6 +167,21 @@ function mockCheck(w: any) {
   });
   return { issues, steps };
 }
+
+/**
+ * L'orchestrateur du harnais passe par ses états pour qu'on puisse juger
+ * l'animation sans moteur : repos, aiguillage, planification, supervision.
+ */
+const ORCHESTRATOR = () => {
+  const phases = ["idle", "routing", "planning", "supervising"] as const;
+  const status = phases[Math.floor(Date.now() / 6000) % phases.length];
+  return {
+    status,
+    projectId: status === "idle" || status === "routing" ? null : "p1",
+    detail: status === "idle" ? null : "« corrige le formulaire de contact »",
+    since: new Date().toISOString(),
+  };
+};
 
 const iso = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
 const MOCK_RUN = (id: string, title: string, status: string, minutesAgo: number, request: string | null) => ({
