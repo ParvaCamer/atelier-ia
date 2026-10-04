@@ -114,6 +114,7 @@ impl Engine {
                 Err(e) => return Err(fail(format!("fournisseur IA : {e}"))),
             };
             cost += completion.usage.cost_usd.unwrap_or(0.0);
+            self.record_usage(Some(&task.run_id), Some(&task.id), "agent", &completion).await;
 
             let raw = completion.json.clone().unwrap_or(Value::Null);
             let action: AgentAction = match serde_json::from_value(raw.clone()) {

@@ -351,6 +351,7 @@ impl Engine {
             .complete("reasoning.high", request, &CancellationToken::new())
             .await
             .map_err(|e| anyhow::anyhow!("rédaction du brouillon impossible : {e}"))?;
+        self.record_usage(None, None, "draft", &completion).await;
         let text = strip_code_fence(completion.text.trim()).trim();
         if text.is_empty() {
             anyhow::bail!("le modèle a renvoyé un brouillon vide pour le rôle « {role} » : réessaie, ou rédige le skill à la main");
@@ -781,6 +782,7 @@ impl Engine {
             )
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
+        self.record_usage(None, None, "test", &completion).await;
         if completion.json.as_ref().and_then(|j| j["ok"].as_bool()) != Some(true) {
             anyhow::bail!("réponse inattendue : {}", completion.text.chars().take(200).collect::<String>());
         }

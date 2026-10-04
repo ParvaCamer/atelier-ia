@@ -69,3 +69,8 @@ pub async fn save_watch(state: State<'_, AppState>, watch: FileWatch) -> CmdResu
 pub async fn delete_watch(state: State<'_, AppState>, watch_id: WatchId) -> CmdResult<()> {
     state.engine.delete_watch(&watch_id).await.map_err(err)
 }
+
+#[tauri::command]
+pub async fn cost_summary(state: State<'_, AppState>) -> CmdResult<CostSummary> {
+    state.engine.cost_summary().await.map_err(err)
+}

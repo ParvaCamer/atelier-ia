@@ -1,5 +1,5 @@
 use crate::{conv::*, db::Db, error::{Result, StoreError}};
-use atelier_domain::{ProjectId, Run, RunFilter, RunId, RunStatus, RunSummary, ScheduleId, WorkflowId};
+use atelier_domain::{ProjectId, Run, RunFilter, RunId, RunStatus, RunSummary, ScheduleId, Usage, WorkflowId};
 use chrono::{DateTime, Utc};
 use sqlx::Row;
 
@@ -95,7 +95,11 @@ const SUMMARY_SELECT: &str = "
     SELECT r.*, p.name AS project_name, p.color AS project_color,
         (SELECT COUNT(*) FROM tasks t WHERE t.run_id = r.id) AS total,
         (SELECT COUNT(*) FROM tasks t WHERE t.run_id = r.id AND t.status = 'completed') AS done,
-        (SELECT COUNT(*) FROM tasks t WHERE t.run_id = r.id AND t.status = 'failed') AS failed
+        (SELECT COUNT(*) FROM tasks t WHERE t.run_id = r.id AND t.status = 'failed') AS failed,
+        (SELECT COUNT(*) FROM model_usage u WHERE u.run_id = r.id) AS usage_calls,
+        (SELECT COALESCE(SUM(u.input_tokens), 0) FROM model_usage u WHERE u.run_id = r.id) AS usage_in,
+        (SELECT COALESCE(SUM(u.output_tokens), 0) FROM model_usage u WHERE u.run_id = r.id) AS usage_out,
+        (SELECT SUM(u.cost_usd) FROM model_usage u WHERE u.run_id = r.id) AS usage_cost
     FROM runs r JOIN projects p ON p.id = r.project_id";
 
 fn map_summary(row: &sqlx::sqlite::SqliteRow) -> Result<RunSummary> {
@@ -109,6 +113,12 @@ fn map_summary(row: &sqlx::sqlite::SqliteRow) -> Result<RunSummary> {
         failed: row.get::<i64, _>("failed") as u32,
         duration_ms,
         schedule_id: row.get::<Option<String>, _>("schedule_id").map(ScheduleId),
+        usage: Usage {
+            calls: row.get::<i64, _>("usage_calls") as u32,
+            input_tokens: row.get("usage_in"),
+            output_tokens: row.get("usage_out"),
+            cost_usd: row.get("usage_cost"),
+        },
         run,
     })
 }

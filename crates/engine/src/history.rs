@@ -21,6 +21,7 @@ impl Engine {
             tasks.push(TaskDetail {
                 agent_name: names.get(&task.agent_id).cloned().unwrap_or_else(|| "agent supprimé".into()),
                 tool_calls: repo::tool_calls::list_by_task(db, &task.id).await?,
+                usage: repo::usage::for_task(db, &task.id).await?,
                 task,
             });
         }

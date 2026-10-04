@@ -18,11 +18,16 @@ use tokio_util::sync::CancellationToken;
 struct Scripted {
     replies: Mutex<VecDeque<Value>>,
     seen: Mutex<Vec<CompletionRequest>>,
+    /// Coût annoncé à chaque réponse, comme le fait Claude Code.
+    cost: Option<f64>,
 }
 
 impl Scripted {
     fn new(replies: Vec<Value>) -> Arc<Self> {
-        Arc::new(Self { replies: Mutex::new(replies.into()), seen: Mutex::default() })
+        Self::costing(replies, None)
+    }
+    fn costing(replies: Vec<Value>, cost: Option<f64>) -> Arc<Self> {
+        Arc::new(Self { replies: Mutex::new(replies.into()), seen: Mutex::default(), cost })
     }
     fn seen(&self) -> Vec<CompletionRequest> {
         self.seen.lock().unwrap().clone()
@@ -37,7 +42,8 @@ impl Provider for Scripted {
     async fn complete(&self, _: &str, req: &CompletionRequest, _: &CancellationToken) -> Result<Completion, ProviderError> {
         self.seen.lock().unwrap().push(req.clone());
         let reply = self.replies.lock().unwrap().pop_front().ok_or_else(|| ProviderError::Other("script épuisé".into()))?;
-        Ok(Completion { text: reply.to_string(), json: Some(reply), usage: Usage::default(), served_by: "scripted".into() })
+        let usage = Usage { input_tokens: 1_000, output_tokens: 100, cost_usd: self.cost };
+        Ok(Completion { text: reply.to_string(), json: Some(reply), usage, served_by: "scripted/test".into() })
     }
 }
 
@@ -91,12 +97,16 @@ async fn add_project(db: &Db, name: &str, description: &str, agents: &[&str], gr
 }
 
 async fn world(replies: Vec<Value>) -> World {
+    world_costing(replies, None).await
+}
+
+async fn world_costing(replies: Vec<Value>, cost: Option<f64>) -> World {
     let db = Db::open_in_memory().await.unwrap();
     let grants = [("shell.exec", "echo")];
     let project = add_project(&db, "Test", "application mobile", &["Agent 0", "Agent 1"], &grants).await;
     let other = add_project(&db, "Autre", "site vitrine", &["Agent Autre"], &grants).await;
 
-    let script = Scripted::new(replies);
+    let script = Scripted::costing(replies, cost);
     let route = || Route { provider_id: "fake".into(), model: String::new(), max_tokens: 4096, temperature: 0.0, fallback: None };
     // Le modèle « de raisonnement » est enregistré sous un autre fournisseur
     // (même script) : c'est ce qui rend l'escalade d'aiguillage observable.
@@ -349,4 +359,53 @@ async fn skill_de_role_puis_surcouche_dans_le_prompt() {
     wait_for(&w, &task, TaskStatus::Completed).await;
     let system = w.script.seen()[2].system.clone();
     assert!(!system.contains("## Ta méthode"), "aucune section pour un skill introuvable");
+}
+
+/// Un run planifié puis exécuté par deux agents IA, avec un fournisseur
+/// qui annonce 0,25 $ par appel : le cumul du run compte la planification
+/// et chaque décision, et rien d'autre.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cout_annonce_cumule_par_tache_et_par_run() {
+    let w = world_costing(vec![
+        json!({"decision": "plan", "title": "Deux temps", "reasoning": "", "steps": [
+            {"key": "a", "title": "A", "instruction": "fais a", "agent": "Agent 0", "depends_on": []},
+            {"key": "b", "title": "B", "instruction": "fais b", "agent": "Agent 1", "depends_on": ["a"]}
+        ]}),
+        json!({"thought": "je regarde", "action": "tool", "tool": "shell.exec", "args": {"command": "echo a"}}),
+        json!({"thought": "fini", "action": "finish", "summary": "a fait"}),
+        json!({"thought": "fini", "action": "finish", "summary": "b fait"}),
+    ], Some(0.25)).await;
+
+    let run = w.engine.submit_request("fais a puis b", Some(&w.project)).await.unwrap();
+    let tasks = repo::tasks::list_by_run(w.engine.db(), &run).await.unwrap();
+    let b = tasks.iter().find(|t| t.title == "B").unwrap();
+    wait_for(&w, &b.id, TaskStatus::Completed).await;
+
+    let detail = w.engine.run_detail(&run).await.unwrap();
+    let usage = &detail.summary.usage;
+    assert_eq!(usage.calls, 4, "1 planification + 2 décisions pour A + 1 pour B");
+    assert_eq!(usage.cost_usd, Some(1.0), "cumul du run, planification comprise");
+    assert_eq!((usage.input_tokens, usage.output_tokens), (4_000, 400));
+    let per_task: Vec<(String, Option<f64>)> = detail.tasks.iter().map(|t| (t.task.title.clone(), t.usage.cost_usd)).collect();
+    assert_eq!(per_task, vec![("A".into(), Some(0.5)), ("B".into(), Some(0.25))]);
+
+    let month = w.engine.cost_summary().await.unwrap();
+    assert_eq!(month.total.cost_usd, Some(1.0));
+    assert_eq!(month.by_provider, vec![("scripted".to_string(), month.total.clone())]);
+    assert!(month.since <= chrono::Utc::now());
+
+    // L'historique filtré porte le même cumul que le détail.
+    let listed = w.engine.list_runs(RunFilter { limit: 10, ..Default::default() }).await.unwrap();
+    assert_eq!(listed[0].usage, *usage);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sans_cout_annonce_le_cumul_reste_vide() {
+    let w = world(vec![json!({"thought": "ok", "action": "finish", "summary": "fait"})]).await;
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Completed).await;
+    let run = repo::tasks::get(w.engine.db(), &task).await.unwrap().run_id;
+    let usage = w.engine.run_detail(&run).await.unwrap().summary.usage;
+    assert_eq!(usage.calls, 1);
+    assert_eq!(usage.cost_usd, None, "aucun coût annoncé : on n'invente pas 0 $");
 }

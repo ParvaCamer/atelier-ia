@@ -129,6 +129,7 @@ impl Engine {
             }
             Err(e) => anyhow::bail!("extraction de mémoire : {e}"),
         };
+        self.record_usage(Some(&task.run_id), Some(&task.id), "memory", &completion).await;
 
         let extracted: Extracted = serde_json::from_value(completion.json.unwrap_or(Value::Null)).unwrap_or(Extracted { entries: vec![] });
         let mut accepted: Vec<(MemoryKind, String)> = Vec::new();

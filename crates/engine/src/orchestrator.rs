@@ -152,8 +152,10 @@ impl Engine {
         }
         let cancel = CancellationToken::new();
         self.orchestrator_log(None, format!("◆ demande : « {text} »"));
+        // Appels faits avant que le run existe : rattachés à lui une fois créé.
+        let mut spent: Vec<String> = Vec::new();
 
-        let project = self.route_request(text, project_hint, &cancel).await?;
+        let project = self.route_request(text, project_hint, &cancel, &mut spent).await?;
         self.orchestrator_log(Some(&project.id), format!("◆ projet retenu : {}", project.name));
 
         let agents: Vec<Agent> = repo::agents::list(self.db())
@@ -194,6 +196,7 @@ impl Engine {
                 )
                 .await
                 .map_err(|e| anyhow::anyhow!("orchestrateur : {e}"))?;
+            spent.extend(self.record_usage(None, None, "planning", &completion).await);
             let raw = completion
                 .json
                 .clone()
@@ -208,10 +211,10 @@ impl Engine {
                     if !reasoning.is_empty() {
                         self.orchestrator_log(Some(&project.id), format!("◆ {reasoning}"));
                     }
-                    return match resolved {
+                    let run = match resolved {
                         Resolved::Workflow(id) => {
                             self.orchestrator_log(Some(&project.id), "◆ workflow enregistré réutilisé");
-                            self.launch_workflow_with(&id, Some(text)).await
+                            self.launch_workflow_with(&id, Some(text)).await?
                         }
                         Resolved::Steps { title, steps } => {
                             let outline: Vec<String> = steps.iter().map(|s| s.title.clone()).collect();
@@ -219,9 +222,11 @@ impl Engine {
                                 Some(&project.id),
                                 format!("◆ plan : {} étape(s) — {}", steps.len(), outline.join(" · ")),
                             );
-                            self.create_run(&project.id, &title, Some(text), None, &steps).await
+                            self.create_run(&project.id, &title, Some(text), None, &steps).await?
                         }
                     };
+                    repo::usage::attach_to_run(self.db(), &spent, &run).await?;
+                    return Ok(run);
                 }
                 Err(e) => {
                     self.orchestrator_log(Some(&project.id), format!("◆ plan rejeté : {e}"));
@@ -234,7 +239,7 @@ impl Engine {
         anyhow::bail!("plan invalide après correction : {last_error}")
     }
 
-    async fn route_request(&self, text: &str, hint: Option<&ProjectId>, cancel: &CancellationToken) -> anyhow::Result<Project> {
+    async fn route_request(&self, text: &str, hint: Option<&ProjectId>, cancel: &CancellationToken, spent: &mut Vec<String>) -> anyhow::Result<Project> {
         let projects = repo::projects::list(self.db()).await?;
         if let Some(id) = hint {
             return projects.into_iter().find(|p| &p.id == id).ok_or_else(|| anyhow::anyhow!("projet introuvable"));
@@ -253,7 +258,7 @@ impl Engine {
         let request = router_request(&projects, &agents, text);
 
         // D'abord le modèle léger (local, gratuit)…
-        if let Some(project) = self.ask_router("classify.fast", request.clone(), &projects, cancel).await? {
+        if let Some(project) = self.ask_router("classify.fast", request.clone(), &projects, cancel, spent).await? {
             return Ok(project);
         }
         // … puis, seulement s'il hésite, le modèle de raisonnement. On ne paie
@@ -265,7 +270,7 @@ impl Engine {
         };
         if escalate {
             self.orchestrator_log(None, "◆ aiguillage local incertain — avis du modèle de raisonnement");
-            if let Some(project) = self.ask_router("reasoning.default", request, &projects, cancel).await? {
+            if let Some(project) = self.ask_router("reasoning.default", request, &projects, cancel, spent).await? {
                 return Ok(project);
             }
         }
@@ -279,12 +284,14 @@ impl Engine {
         request: CompletionRequest,
         projects: &[Project],
         cancel: &CancellationToken,
+        spent: &mut Vec<String>,
     ) -> anyhow::Result<Option<Project>> {
         let completion = self
             .providers()
             .complete(model_ref, request, cancel)
             .await
             .map_err(|e| anyhow::anyhow!("aiguillage : {e}"))?;
+        spent.extend(self.record_usage(None, None, "routing", &completion).await);
         let answer: RouterAnswer = serde_json::from_value(completion.json.unwrap_or(Value::Null))
             .map_err(|e| anyhow::anyhow!("aiguillage illisible : {e}"))?;
 

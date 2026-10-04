@@ -16,6 +16,35 @@ pub struct RunSummary {
     #[ts(type = "number | null")]
     pub duration_ms: Option<i64>,
     pub schedule_id: Option<ScheduleId>,
+    /// Consommation du run : planification comprise, toutes tâches confondues.
+    pub usage: Usage,
+}
+
+/// Consommation annoncée par les fournisseurs, sans aucune mesure ajoutée.
+/// Pour Claude Code, le coût est l'**équivalent API estimé** par le CLI :
+/// avec un abonnement, rien n'est facturé à l'appel, c'est le quota qui baisse.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Usage {
+    pub calls: u32,
+    #[ts(type = "number")]
+    pub input_tokens: i64,
+    #[ts(type = "number")]
+    pub output_tokens: i64,
+    /// `None` : aucun appel n'a annoncé de coût.
+    pub cost_usd: Option<f64>,
+}
+
+/// Cumul du mois en cours (heure locale), par fournisseur.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CostSummary {
+    pub since: DateTime<Utc>,
+    pub total: Usage,
+    /// « claude-code », « ollama », « openai »… avec leur part du cumul.
+    pub by_provider: Vec<(String, Usage)>,
 }
 
 /// Trace d'audit d'un appel d'outil, telle qu'écrite par la porte de permissions.
@@ -42,6 +71,7 @@ pub struct TaskDetail {
     pub task: Task,
     pub agent_name: String,
     pub tool_calls: Vec<ToolCallRecord>,
+    pub usage: Usage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

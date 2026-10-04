@@ -110,6 +110,7 @@ pub fn run() {
             commands::phase4::list_watches,
             commands::phase4::save_watch,
             commands::phase4::delete_watch,
+            commands::phase4::cost_summary,
         ])
         .run(tauri::generate_context!())
         .expect("démarrage de l'application impossible");

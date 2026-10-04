@@ -12,5 +12,6 @@ pub mod schedules;
 pub mod settings;
 pub mod tasks;
 pub mod tool_calls;
+pub mod usage;
 pub mod watches;
 pub mod workflows;

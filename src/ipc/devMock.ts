@@ -169,7 +169,9 @@ const MOCK_RUN = (id: string, title: string, status: string, minutesAgo: number,
   run: { id, projectId: "p1", workflowId: request ? null : "w1", title, request, status, createdAt: iso(minutesAgo), finishedAt: status === "running" ? null : iso(minutesAgo - 3) },
   projectName: "Spotly", projectColor: "#5eead4", total: 2, done: status === "completed" ? 2 : 1,
   failed: status === "failed" ? 1 : 0, durationMs: status === "running" ? null : 180_000, scheduleId: id === "r3" ? "s1" : null,
+  usage: request ? { calls: 7, inputTokens: 48_200, outputTokens: 3_150, costUsd: 0.412 } : { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: null },
 });
+const USAGE = (costUsd: number | null, calls = 3) => ({ calls, inputTokens: calls * 6_000, outputTokens: calls * 400, costUsd });
 const RUNS = [
   MOCK_RUN("r1", "Corrige le bug du formulaire de contact", "failed", 12, "Corrige le bug du formulaire de contact sur Spotly"),
   MOCK_RUN("r2", "Release Spotly", "completed", 95, null),
@@ -235,6 +237,7 @@ export function installDevMock() {
                 error: s.status === "failed" ? "`./gradlew assembleRelease` a échoué (code 1)" : null, attempt: 0,
                 createdAt: iso(1), startedAt: s.status === "queued" ? null : iso(1), finishedAt: null },
               toolCalls: [],
+              usage: USAGE(null, 0),
             })),
           };
         }
@@ -245,11 +248,13 @@ export function installDevMock() {
             summary: "Le formulaire est dans ContactScreen.kt ; la validation de l'e-mail rejette les domaines en .app.", createdAt: iso(10) }],
           tasks: [
             { agentName: "Dev Front Spotly", task: { id: "t0", runId: summary.run.id, projectId: "p1", agentId: "a1", title: "Localiser le formulaire", description: "", status: "completed", progress: 1, dependsOn: [], commands: [], requiresApproval: false, result: "Le formulaire est dans ContactScreen.kt ; la validation de l'e-mail rejette les domaines en .app.", error: null, attempt: 0, createdAt: iso(12), startedAt: iso(12), finishedAt: iso(10) },
+              usage: USAGE(0.18),
               toolCalls: [
                 { id: "c1", tool: "fs.list", args: '{"path":"app/src"}', decision: "allow", reason: "autorisé", ok: true, output: "main/\ntest/", durationMs: 12, createdAt: iso(12) },
                 { id: "c2", tool: "fs.read", args: '{"path":"app/src/main/ContactScreen.kt"}', decision: "allow", reason: "autorisé", ok: true, output: "@Composable fun ContactScreen() { … }", durationMs: 8, createdAt: iso(11) },
               ] },
             { agentName: "QA Spotly", task: { id: "t1", runId: summary.run.id, projectId: "p1", agentId: "a3", title: "Vérifier la correction", description: "", status: summary.run.status === "failed" ? "failed" : "completed", progress: 0.5, dependsOn: ["t0"], commands: [], requiresApproval: false, result: null, error: summary.run.status === "failed" ? "`./gradlew connectedAndroidTest` a échoué (code 1)" : null, attempt: 1, createdAt: iso(10), startedAt: iso(10), finishedAt: iso(9) },
+              usage: USAGE(0.232, 4),
               toolCalls: [
                 { id: "c3", tool: "shell.exec", args: '{"command":"./gradlew connectedAndroidTest"}', decision: "allow", reason: "autorisé", ok: false, output: "> No connected devices!", durationMs: 41000, createdAt: iso(10) },
                 { id: "c4", tool: "shell.exec", args: '{"command":"rm -rf build"}', decision: "ask", reason: "`rm` peut affecter le système hors du projet", ok: false, output: "refusé par l'utilisateur", durationMs: 0, createdAt: iso(9) },
@@ -257,6 +262,14 @@ export function installDevMock() {
           ],
         };
       }
+      case "cost_summary": return {
+        since: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(),
+        total: { calls: 212, inputTokens: 1_480_000, outputTokens: 96_000, costUsd: 12.84 },
+        byProvider: [
+          ["claude-code", { calls: 140, inputTokens: 1_200_000, outputTokens: 80_000, costUsd: 12.84 }],
+          ["ollama", { calls: 72, inputTokens: 280_000, outputTokens: 16_000, costUsd: 0 }],
+        ],
+      };
       case "list_memories": return MEMORIES;
       case "save_memory": return { ...args.entry, id: args.entry.id || `m${Date.now()}` };
       case "delete_memory": return null;

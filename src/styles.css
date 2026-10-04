@@ -707,6 +707,9 @@ select.input { appearance: none; padding-right: 22px; background-image: linear-g
 .run-detail-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-faint); }
 .run-request { margin: 14px 0 0; padding: 10px 14px; border-left: 3px solid #a78bfa; background: rgba(167, 139, 250, 0.06); border-radius: 0 8px 8px 0; color: var(--text); font-size: 13px; }
 
+.month-cost { font-size: 12px; color: var(--text-dim); white-space: nowrap; cursor: help; }
+.month-cost b { color: var(--text); font-variant-numeric: tabular-nums; }
+.month-cost[data-kind="error"] { color: var(--warn); }
 .run-graph { margin-top: 18px; }
 .run-graph-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
 .run-graph-head h3 { margin: 0; font-size: 13px; font-weight: 600; }

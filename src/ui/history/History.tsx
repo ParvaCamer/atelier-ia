@@ -4,7 +4,7 @@
  * rien n'est reconstitué à partir du discours des agents.
  */
 import { useEffect, useMemo, useState } from "react";
-import type { Handoff, LogLine, ProjectId, RunDetail, RunFilter, RunStatus, RunStepView, RunSummary, TaskDetail, TaskId, ToolCallRecord } from "../../ipc";
+import type { CostSummary, Handoff, LogLine, ProjectId, RunDetail, RunFilter, RunStatus, RunStepView, RunSummary, TaskDetail, TaskId, ToolCallRecord, Usage } from "../../ipc";
 import { api } from "../../ipc";
 import { useConfig } from "../../state/config";
 import { useHistory } from "../../state/history";
@@ -18,6 +18,33 @@ const RUN_STATUS: Record<RunStatus, string> = {
 };
 
 const DECISION: Record<string, string> = { allow: "autorisé", ask: "validation", deny: "refusé" };
+
+/** Coût annoncé par les fournisseurs. Pour Claude Code : équivalent API estimé, pas une facture. */
+function cost(u: Usage): string | null {
+  if (u.costUsd === null) return null;
+  return u.costUsd < 0.01 && u.costUsd > 0 ? "< 0,01 $" : `${u.costUsd.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+}
+
+function tokens(u: Usage): string {
+  const k = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)} k` : n.toLocaleString("fr-FR"));
+  return `${k(u.inputTokens)} → ${k(u.outputTokens)} jetons`;
+}
+
+const COST_HINT = "Coût annoncé par les fournisseurs. Pour Claude Code, c'est l'équivalent API estimé : avec l'abonnement, rien n'est facturé à l'appel, c'est le quota qui baisse.";
+
+function MonthCost() {
+  const [summary, setSummary] = useState<CostSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { api.costSummary().then(setSummary).catch((e) => setError(String(e))); }, []);
+  if (error) return <span className="month-cost" data-kind="error" title={error}>cumul du mois indisponible</span>;
+  if (!summary) return <span className="month-cost">cumul du mois…</span>;
+  const detail = summary.byProvider.map(([p, u]) => `${p} : ${cost(u) ?? "coût non annoncé"} · ${u.calls} appel(s)`).join("\n");
+  return (
+    <span className="month-cost" title={`${COST_HINT}\n\n${detail}`}>
+      Ce mois : <b>{cost(summary.total) ?? "—"}</b> · {summary.total.calls} appel{summary.total.calls > 1 ? "s" : ""}
+    </span>
+  );
+}
 
 function when(iso: string): string {
   return new Date(iso).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" });
@@ -107,6 +134,7 @@ export function History() {
           <input className="input compact" placeholder="Rechercher une demande…" value={query} onChange={(e) => setQuery(e.target.value)} />
           <label className="check"><input type="checkbox" checked={scheduledOnly} onChange={(e) => setScheduledOnly(e.target.checked)} />planifiées</label>
         </div>
+        <MonthCost />
         <button className="settings-close" onClick={close}>Retour au monde <kbd>esc</kbd></button>
       </div>
 
@@ -126,6 +154,7 @@ export function History() {
                 <span>{when(r.run.createdAt)}</span>
                 <span>{r.done}/{r.total} étapes</span>
                 {r.durationMs !== null && <span>{formatDuration(r.durationMs)}</span>}
+                {cost(r.usage) && <span title={COST_HINT}>{cost(r.usage)}</span>}
               </div>
             </button>
           ))}
@@ -191,6 +220,11 @@ function RunDetailView({ runId }: { runId: string }) {
             {detail.summary.durationMs !== null && ` · ${formatDuration(detail.summary.durationMs)}`}
             {detail.summary.scheduleId && " · lancée par une planification"}
           </div>
+          {detail.summary.usage.calls > 0 && (
+            <div className="run-detail-meta" title={COST_HINT}>
+              {cost(detail.summary.usage) ?? "coût non annoncé"} · {detail.summary.usage.calls} appel{detail.summary.usage.calls > 1 ? "s" : ""} au modèle · {tokens(detail.summary.usage)}
+            </div>
+          )}
         </div>
         <span className="run-status big" data-status={status}>{RUN_STATUS[status]}</span>
       </div>
@@ -253,6 +287,7 @@ function TaskCard({ detail, onChanged, focused, received }: {
           {task.commands.length ? "commandes" : "agent IA"}
           {task.attempt > 0 && ` · ${task.attempt + 1} tentatives`}
           {span(task.startedAt, task.finishedAt) && ` · ${span(task.startedAt, task.finishedAt)}`}
+          {detail.usage.calls > 0 && <span title={`${COST_HINT}\n${tokens(detail.usage)}`}>{` · ${cost(detail.usage) ?? `${detail.usage.calls} appel(s)`}`}</span>}
         </span>
       </div>
 

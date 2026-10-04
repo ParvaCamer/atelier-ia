@@ -577,6 +577,16 @@ tentatives, résultat ou erreur, et pour chaque tâche la liste des appels
 d'outils avec la décision de permission, sa raison, le résultat et le
 journal. Relance d'une étape échouée ou de l'exécution entière.
 
+## Coût et consommation (implémentés)
+
+Table `model_usage` (migration 0010) : une ligne par appel à un modèle,
+avec ce que le fournisseur annonce (jetons, coût, `served_by`) — aucun
+appel supplémentaire pour mesurer. Rattachée à la tâche (décisions
+d'agent, extraction de mémoire) et au run (aiguillage et planification,
+rattachés après création du run). Agrégée à la lecture : `RunSummary.usage`,
+`TaskDetail.usage`, `cost_summary()` pour le cumul du mois (heure locale),
+par fournisseur. Coût absent ≠ 0 $ : `None` quand rien n'a été annoncé.
+
 ## Planifications (implémentées)
 
 Table unique pour deux cibles : un **workflow** (gratuit à lancer, déjà un

@@ -24,7 +24,7 @@ pub use config::{AppSettings, HealthState, ModelRoute, ProviderConfig, ProviderH
 pub use event::DomainEvent;
 pub use ids::*;
 pub use log::{LogLine, LogStream};
-pub use history::{Handoff, RunDetail, RunFilter, RunSummary, TaskDetail, ToolCallRecord};
+pub use history::{CostSummary, Handoff, RunDetail, RunFilter, RunSummary, TaskDetail, ToolCallRecord, Usage};
 pub use memory::{MemoryEntry, MemoryFilter, MemoryKind, MemoryScope, MemoryView};
 pub use schedule::{FileWatch, Schedule, ScheduleOutcome, ScheduleTarget};
 pub use permission::{Decision, Grant, Mode, ResourceScope};

@@ -15,6 +15,7 @@ pub mod orchestrator;
 pub mod schedules;
 pub mod scheduler;
 pub mod semantic;
+pub mod usage;
 pub mod watches;
 pub mod world;
 

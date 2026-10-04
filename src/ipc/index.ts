@@ -12,7 +12,7 @@ import type {
   Project, ProjectId, ProviderConfig, ProviderHealth, PtyId, RouteTest, Run, RunId, Task,
   TaskControl, TaskId, ToolInfo, Workflow, WorkflowId, WorldSnapshot,
   MemoryEntry, MemoryFilter, MemoryId, MemoryView, RunDetail, RunFilter, RunSummary,
-  Schedule, ScheduleId, WorkflowCheck, FileWatch, WatchId,
+  Schedule, ScheduleId, WorkflowCheck, FileWatch, WatchId, CostSummary,
 } from "./generated";
 
 export type GrantPresetName = "none" | "read-only" | "developer";
@@ -95,6 +95,7 @@ export const api = {
   // --- historique ---
   listRuns: (filter: RunFilter) => invoke<RunSummary[]>("list_runs", { filter }),
   runDetail: (runId: RunId) => invoke<RunDetail>("run_detail", { runId }),
+  costSummary: () => invoke<CostSummary>("cost_summary"),
 
   // --- mémoire ---
   listMemories: (filter: MemoryFilter) => invoke<MemoryView[]>("list_memories", { filter }),
