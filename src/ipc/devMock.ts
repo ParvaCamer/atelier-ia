@@ -391,8 +391,8 @@ export function installDevMock() {
       }
       case "team_templates": return [
         { key: "developpement", label: "Développement", preset: "developer", members: ["Tech Lead", "Développeur Frontend", "Développeur Backend", "Assurance qualité"] },
-        { key: "contenu", label: "Contenu", preset: "developer", members: ["Direction artistique", "Motion designer", "Rédaction"] },
-        { key: "ops", label: "Exploitation", preset: "read-only", members: ["Ingénieur système", "Supervision"] },
+        { key: "contenu", label: "Contenu", preset: "developer", members: ["Chef de projet", "Direction artistique", "Motion designer", "Rédaction"] },
+        { key: "ops", label: "Exploitation", preset: "read-only", members: ["Chef de projet", "Ingénieur système", "Supervision"] },
       ];
       case "create_team": {
         const made = ["Tech Lead", "Développeur Frontend"].map((role, i) => ({

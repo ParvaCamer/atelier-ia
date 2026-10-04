@@ -438,6 +438,7 @@ const BUILTIN_AGENT_SKILLS: &[(&str, &str)] = &[
     ("motion-designer", include_str!("../../../skills/agents/motion-designer.md")),
     ("direction-artistique", include_str!("../../../skills/agents/direction-artistique.md")),
     ("redaction", include_str!("../../../skills/agents/redaction.md")),
+    ("chef-de-projet", include_str!("../../../skills/agents/chef-de-projet.md")),
 ];
 
 /// Titre d'un skill : son premier titre markdown de niveau 1.

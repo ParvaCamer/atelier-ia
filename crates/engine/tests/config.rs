@@ -571,6 +571,31 @@ async fn equipe_type_complete_sans_dupliquer() {
     assert!(e.create_team(&project.id, "fantome").await.is_err(), "équipe type inconnue refusée");
 }
 
+/// Le tableau de l'orchestrateur n'accepte de propositions que des chefs :
+/// une équipe type sans chef laisserait son projet muet.
+#[tokio::test(flavor = "multi_thread")]
+async fn chaque_equipe_type_a_un_chef() {
+    let e = engine().await;
+    for team in e.team_templates() {
+        let project = e.save_project(project_draft(&format!("Projet {}", team.key), Some(temp_dir()))).await.unwrap();
+        let created = e.create_team(&project.id, &team.key).await.unwrap();
+        let chefs: Vec<&Agent> = created.iter().filter(|a| a.archetype == Archetype::Lead).collect();
+        assert_eq!(chefs.len(), 1, "l'équipe {} doit avoir exactement un chef : {created:?}", team.key);
+    }
+
+    // Une équipe Contenu montée avant l'arrivée du chef : relancer l'ajoute
+    // seul, avec son skill de rôle, sans toucher aux autres.
+    let studio = e.save_project(project_draft("Studio", Some(temp_dir()))).await.unwrap();
+    for name in ["Direction artistique Studio", "Motion designer Studio", "Rédaction Studio"] {
+        e.save_agent(agent_draft(&studio.id, name)).await.unwrap();
+    }
+    let added = e.create_team(&studio.id, "contenu").await.unwrap();
+    assert_eq!(added.len(), 1, "{added:?}");
+    assert_eq!(added[0].name, "Chef de projet Studio");
+    assert_eq!(added[0].archetype, Archetype::Lead);
+    assert_eq!(added[0].skill_slug.as_deref(), Some("chef-de-projet"), "skill livré rattaché");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn dossier_de_travail_d_une_etape_borne_au_projet() {
     let e = engine().await;

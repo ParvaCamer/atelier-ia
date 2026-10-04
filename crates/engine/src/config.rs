@@ -1150,6 +1150,10 @@ fn head(text: &str, max: usize) -> String {
 /// Équipes types : rôle, apparence, skill de rôle livré quand il existe.
 /// Monter une équipe à la main, agent par agent, est la corvée qui décourage
 /// d'ouvrir un nouveau projet.
+///
+/// Chaque équipe a un chef (archétype `Lead`) : c'est lui seul qui peut
+/// proposer une tâche au tableau de l'orchestrateur. Faute d'intitulé
+/// propre au métier (« Tech Lead »), c'est un « Chef de projet ».
 const TEAMS: &[(&str, &str, &str, &[(&str, Archetype, Option<&str>)])] = &[
     (
         "developpement",
@@ -1167,6 +1171,7 @@ const TEAMS: &[(&str, &str, &str, &[(&str, Archetype, Option<&str>)])] = &[
         "Contenu",
         "developer",
         &[
+            ("Chef de projet", Archetype::Lead, Some("chef-de-projet")),
             ("Direction artistique", Archetype::Designer, Some("direction-artistique")),
             ("Motion designer", Archetype::Designer, Some("motion-designer")),
             ("Rédaction", Archetype::Marketing, Some("redaction")),
@@ -1176,7 +1181,11 @@ const TEAMS: &[(&str, &str, &str, &[(&str, Archetype, Option<&str>)])] = &[
         "ops",
         "Exploitation",
         "read-only",
-        &[("Ingénieur système", Archetype::Ops, None), ("Supervision", Archetype::Ops, None)],
+        &[
+            ("Chef de projet", Archetype::Lead, Some("chef-de-projet")),
+            ("Ingénieur système", Archetype::Ops, None),
+            ("Supervision", Archetype::Ops, None),
+        ],
     ),
 ];
 
