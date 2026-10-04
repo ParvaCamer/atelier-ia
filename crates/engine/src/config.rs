@@ -571,6 +571,20 @@ impl Engine {
             if s.agent_id.is_none() && role_hint.is_none() {
                 issue(&mut issues, at, IssueLevel::Error, "choisis un agent ou indique un rôle".into());
             }
+            let cwd = s.cwd.as_ref().map(|c| c.trim().trim_start_matches("./").trim_end_matches('/').to_string()).filter(|c| !c.is_empty());
+            if let Some(dir) = &cwd {
+                if Path::new(dir).is_absolute() || dir.split('/').any(|seg| seg == "..") {
+                    issue(&mut issues, at, IssueLevel::Error, format!("dossier de travail « {dir} » : indique un sous-dossier du projet, pas un chemin absolu ni « .. »"));
+                } else if let Some(root) = project.as_ref().and_then(|p| p.root_path.as_ref()) {
+                    if !Path::new(root).join(dir).is_dir() {
+                        // Averti, pas refusé : le dossier peut être créé par
+                        // une étape précédente du même workflow.
+                        issue(&mut issues, at, IssueLevel::Warning, format!("le dossier « {dir} » n'existe pas encore dans le projet"));
+                    }
+                } else if project.is_some() {
+                    issue(&mut issues, at, IssueLevel::Error, "un dossier de travail suppose que le projet ait un dossier local".into());
+                }
+            }
             let commands: Vec<String> = s.commands.iter().map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect();
             for c in &commands {
                 if let Err(e) = atelier_tools::shell::parse(c) {
@@ -596,6 +610,7 @@ impl Engine {
 
             let step = WorkflowStep {
                 key: key.clone(),
+                cwd,
                 title,
                 instruction: s.instruction.trim().to_string(),
                 agent_id: s.agent_id.clone(),

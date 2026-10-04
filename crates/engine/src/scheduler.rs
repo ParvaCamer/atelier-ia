@@ -265,7 +265,13 @@ impl Engine {
                 return Err(Failure::Cancelled);
             }
 
-            let out = self.call_tool(&ctx, "shell.exec", json!({ "command": command })).await?;
+            // Le dossier de travail de l'étape, s'il y en a un : les
+            // commandes ne peuvent pas faire `cd`.
+            let args = match &task.cwd {
+                Some(dir) => json!({ "command": command, "cwd": dir }),
+                None => json!({ "command": command }),
+            };
+            let out = self.call_tool(&ctx, "shell.exec", args).await?;
             if !out.ok {
                 let code = out.exit_code.map(|c| c.to_string()).unwrap_or_else(|| "?".into());
                 return Err(Failure::Failed(format!("`{command}` a échoué (code {code})")));

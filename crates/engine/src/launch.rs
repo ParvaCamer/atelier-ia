@@ -30,7 +30,7 @@ impl Engine {
         };
         repo::runs::insert(self.db(), &run).await?;
 
-        let task = new_task(&run, agent_id, command, "", vec![command.to_string()], vec![], false);
+        let task = new_task(&run, agent_id, command, "", vec![command.to_string()], vec![], false, None);
         repo::tasks::insert(self.db(), &task, 0).await?;
 
         self.announce(&run).await?;
@@ -99,6 +99,7 @@ impl Engine {
                 step.commands.clone(),
                 deps,
                 step.requires_approval,
+                step.cwd.clone(),
             );
             ids.insert(step.key.as_str(), task.id.clone());
             tasks.push((task, index as i64));
@@ -130,6 +131,7 @@ fn new_task(
     commands: Vec<String>,
     depends_on: Vec<TaskId>,
     requires_approval: bool,
+    cwd: Option<String>,
 ) -> Task {
     Task {
         id: TaskId::new(),
@@ -142,6 +144,7 @@ fn new_task(
         progress: 0.0,
         depends_on,
         commands,
+        cwd,
         requires_approval,
         result: None,
         error: None,

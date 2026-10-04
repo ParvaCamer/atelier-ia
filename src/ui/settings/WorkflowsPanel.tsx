@@ -11,7 +11,7 @@ import { Area, DangerButton, Feedback, Field, Select, Text, Toggle, useJob } fro
 
 const blankStep = (steps: WorkflowStep[]): WorkflowStep => ({
   key: uniqueKey(steps, `etape_${steps.length + 1}`), title: "", instruction: "", agentId: null, roleHint: null,
-  dependsOn: [], requiresApproval: false, commands: [],
+  dependsOn: [], requiresApproval: false, cwd: null, commands: [],
 });
 
 const blank = (projectId: string): Workflow => ({

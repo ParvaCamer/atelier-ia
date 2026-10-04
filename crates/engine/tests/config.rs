@@ -121,6 +121,7 @@ async fn agent_avec_historique_desactive_plutot_que_supprime() {
     let agent = e.save_agent(agent_draft(&project.id, "Ancien")).await.unwrap();
 
     let step = WorkflowStep {
+        cwd: None,
         key: "a".into(),
         title: "A".into(),
         instruction: String::new(),
@@ -203,6 +204,7 @@ async fn workflow_valide_par_le_moteur() {
     let foreign = repo::agents::list(e.db()).await.unwrap().into_iter().find(|a| a.project_id != project.id).unwrap();
 
     let step = |key: &str, deps: &[&str], agent: Option<AgentId>| WorkflowStep {
+        cwd: None,
         key: key.into(),
         title: format!("Étape {key}"),
         instruction: String::new(),
@@ -244,6 +246,7 @@ async fn diagnostic_du_workflow_place_chaque_probleme_sur_son_etape() {
     let dev = e.save_agent(agent_draft(&project.id, "Dev graphe")).await.unwrap();
 
     let step = |key: &str, deps: &[&str]| WorkflowStep {
+        cwd: None,
         key: key.into(),
         title: format!("Étape {key}"),
         instruction: "fais-le".into(),
@@ -563,4 +566,54 @@ async fn equipe_type_complete_sans_dupliquer() {
     assert!(err.contains("déjà au complet"), "{err}");
 
     assert!(e.create_team(&project.id, "fantome").await.is_err(), "équipe type inconnue refusée");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dossier_de_travail_d_une_etape_borne_au_projet() {
+    let e = engine().await;
+    let root = temp_dir();
+    std::fs::create_dir_all(format!("{root}/tethr-motion")).unwrap();
+    let project = e.save_project(project_draft("Studio", Some(root))).await.unwrap();
+    let agent = e.save_agent(agent_draft(&project.id, "Motion")).await.unwrap();
+
+    let draft = |cwd: Option<&str>| Workflow {
+        id: WorkflowId(String::new()),
+        project_id: project.id.clone(),
+        name: "Rendu".into(),
+        description: String::new(),
+        steps: vec![WorkflowStep {
+            key: "rendu".into(),
+            title: "Rendu".into(),
+            instruction: String::new(),
+            agent_id: Some(agent.id.clone()),
+            role_hint: None,
+            depends_on: vec![],
+            requires_approval: false,
+            cwd: cwd.map(str::to_string),
+            commands: vec!["npm run render".into()],
+        }],
+        trigger: Trigger::Manual,
+        enabled: true,
+    };
+
+    // Sortir du projet, par chemin absolu ou par « .. », est refusé.
+    for interdit in ["/etc", "../ailleurs", "tethr-motion/../.."] {
+        let err = e.save_workflow(draft(Some(interdit))).await.unwrap_err().to_string();
+        assert!(err.contains("sous-dossier du projet"), "« {interdit} » : {err}");
+    }
+
+    // Un dossier absent n'est qu'un avertissement : une étape précédente
+    // peut le créer.
+    let check = e.check_workflow(&draft(Some("pas-encore-la"))).await.unwrap();
+    assert!(check.issues.iter().all(|i| i.level == IssueLevel::Warning), "{:?}", check.issues);
+    assert!(check.issues.iter().any(|i| i.message.contains("n'existe pas encore")));
+
+    // Dossier existant : aucune remarque, et il est conservé tel quel.
+    let saved = e.save_workflow(draft(Some("./tethr-motion/"))).await.unwrap();
+    assert_eq!(saved.steps[0].cwd.as_deref(), Some("tethr-motion"), "normalisé");
+
+    // La tâche créée au lancement porte le dossier de l'étape.
+    let run = e.launch_workflow(&saved.id).await.unwrap();
+    let tasks = repo::tasks::list_by_run(e.db(), &run).await.unwrap();
+    assert_eq!(tasks[0].cwd.as_deref(), Some("tethr-motion"));
 }

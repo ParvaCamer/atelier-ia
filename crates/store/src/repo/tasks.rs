@@ -21,6 +21,7 @@ fn map(row: &sqlx::sqlite::SqliteRow) -> Result<Task> {
         depends_on: Vec::new(), // rempli par `hydrate_deps`
         commands: json_to_vec(&row.get::<String, _>("commands")),
         requires_approval: row.get::<i64, _>("requires_approval") != 0,
+        cwd: row.get::<Option<String>, _>("cwd"),
         result: row.get("result"),
         error: row.get("error"),
         attempt: row.get("attempt"),
@@ -67,8 +68,8 @@ pub async fn insert(db: &Db, t: &Task, position: i64) -> Result<()> {
     sqlx::query(
         "INSERT INTO tasks (id, run_id, project_id, agent_id, title, description, status,
                             progress, result, error, attempt, position, created_at, started_at,
-                            finished_at, commands, requires_approval)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            finished_at, commands, requires_approval, cwd)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     )
     .bind(t.id.as_str())
     .bind(t.run_id.as_str())
@@ -87,6 +88,7 @@ pub async fn insert(db: &Db, t: &Task, position: i64) -> Result<()> {
     .bind(t.finished_at.map(|d| d.to_rfc3339()))
     .bind(vec_to_json(&t.commands))
     .bind(t.requires_approval as i64)
+    .bind(t.cwd.as_deref())
     .execute(&mut *tx)
     .await?;
 

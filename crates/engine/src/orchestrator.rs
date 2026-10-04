@@ -403,6 +403,9 @@ fn validate(plan: Plan, request: &str, agents: &[Agent], workflows: &[Workflow])
                     atelier_tools::shell::parse(c).map_err(|e| format!("commande « {c} » : {e}"))?;
                 }
                 steps.push(WorkflowStep {
+                    // L'orchestrateur ne choisit pas de sous-dossier : les
+                    // étapes qu'il improvise travaillent à la racine.
+                    cwd: None,
                     key: s.key,
                     title: s.title,
                     instruction: s.instruction,

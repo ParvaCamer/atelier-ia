@@ -19,6 +19,10 @@ dependsOn: Array<TaskId>,
  */
 commands: Array<string>, 
 /**
+ * Sous-dossier du projet où s'exécutent ces commandes.
+ */
+cwd: string | null, 
+/**
  * La tâche attend un feu vert humain avant de démarrer.
  */
 requiresApproval: boolean, result: string | null, error: string | null, attempt: number, createdAt: string, startedAt: string | null, finishedAt: string | null, };

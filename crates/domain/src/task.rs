@@ -66,6 +66,9 @@ pub struct Task {
     pub depends_on: Vec<TaskId>,
     /// Commandes explicites (tâche déterministe). Vide = tâche d'agent IA.
     pub commands: Vec<String>,
+    /// Sous-dossier du projet où s'exécutent ces commandes.
+    #[serde(default)]
+    pub cwd: Option<String>,
     /// La tâche attend un feu vert humain avant de démarrer.
     pub requires_approval: bool,
     pub result: Option<String>,

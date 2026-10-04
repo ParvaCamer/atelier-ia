@@ -94,6 +94,7 @@ async fn world_with(replies: Vec<Value>, extraction_down: bool, embedder: Option
 
 fn step(key: &str, agent: &AgentId, commands: &[&str]) -> WorkflowStep {
     WorkflowStep {
+        cwd: None,
         key: key.into(), title: format!("Étape {key}"), instruction: "fais-le".into(), agent_id: Some(agent.clone()),
         role_hint: None, depends_on: vec![], requires_approval: false, commands: commands.iter().map(|c| c.to_string()).collect(),
     }

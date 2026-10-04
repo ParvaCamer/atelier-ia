@@ -33,6 +33,10 @@ pub struct WorkflowStep {
     pub depends_on: Vec<String>,
     /// Exige une validation humaine avant de passer à la suite.
     pub requires_approval: bool,
+    /// Sous-dossier du projet où travailler. `None` = la racine. Les
+    /// commandes ne peuvent pas faire `cd` : c'est ici que ça se règle.
+    #[serde(default)]
+    pub cwd: Option<String>,
     /// Commandes explicites. Si présentes, l'étape s'exécute sans LLM.
     /// Tout ne mérite pas un modèle : `npm test` se lance, il ne se raisonne pas.
     #[serde(default)]

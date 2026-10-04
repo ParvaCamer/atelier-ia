@@ -37,7 +37,8 @@ async fn extraction_reelle_par_ollama() {
     };
     repo::runs::insert(&db, &run).await.unwrap();
     let task = Task {
-        id: TaskId::new(), run_id: run.id.clone(), project_id: project.id.clone(), agent_id: agent.id.clone(),
+        id: TaskId::new(),
+        cwd: None, run_id: run.id.clone(), project_id: project.id.clone(), agent_id: agent.id.clone(),
         title: "Diagnostiquer les tests instables".into(), description: "Trouve pourquoi la suite de tests échoue.".into(),
         status: TaskStatus::Completed, progress: 1.0, depends_on: vec![], commands: vec![], requires_approval: false,
         result: Some("Les tests d'instrumentation échouent sans émulateur. Les tests unitaires passent avec ./gradlew testDebugUnitTest. Release prévue en octobre.".into()),

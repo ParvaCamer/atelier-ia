@@ -238,6 +238,7 @@ async fn seed_release_workflow(db: &Db, project: &ProjectId, agents: &[Agent]) -
 
     let steps = vec![
         WorkflowStep {
+            cwd: None,
             key: "analyse".into(),
             title: "Analyse du dépôt".into(),
             instruction: "Inspecte l'état du dépôt et les changements depuis la dernière release.".into(),
@@ -248,6 +249,7 @@ async fn seed_release_workflow(db: &Db, project: &ProjectId, agents: &[Agent]) -
             commands: vec!["git status --short".into(), "git log --oneline -n 15".into()],
         },
         WorkflowStep {
+            cwd: None,
             key: "front".into(),
             title: "Vérification frontend".into(),
             instruction: "Vérifie que le frontend compile et que les écrans modifiés sont cohérents.".into(),
@@ -258,6 +260,7 @@ async fn seed_release_workflow(db: &Db, project: &ProjectId, agents: &[Agent]) -
             commands: vec![],
         },
         WorkflowStep {
+            cwd: None,
             key: "back".into(),
             title: "Vérification backend".into(),
             instruction: "Vérifie les règles de sécurité et les migrations de données.".into(),
@@ -268,6 +271,7 @@ async fn seed_release_workflow(db: &Db, project: &ProjectId, agents: &[Agent]) -
             commands: vec![],
         },
         WorkflowStep {
+            cwd: None,
             key: "qa".into(),
             title: "Tests".into(),
             instruction: "Lance la suite de tests et analyse les échecs.".into(),
@@ -278,6 +282,7 @@ async fn seed_release_workflow(db: &Db, project: &ProjectId, agents: &[Agent]) -
             commands: vec![],
         },
         WorkflowStep {
+            cwd: None,
             key: "report".into(),
             title: "Rapport de release".into(),
             instruction: "Rédige la note de version à partir des étapes précédentes.".into(),
@@ -355,6 +360,7 @@ pub async fn ensure_builtin_workflows(db: &Db) -> Result<()> {
         // Deux branches parallèles convergent vers une synthèse, ce qui
         // montre le scheduler faire travailler plusieurs agents à la fois.
         let step = |key: &str, title: &str, agent: Option<AgentId>, deps: &[&str], cmds: &[&str]| WorkflowStep {
+            cwd: None,
             key: key.into(),
             title: title.into(),
             instruction: title.into(),

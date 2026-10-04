@@ -73,6 +73,12 @@ export function StepInspector({ steps, index, agents, issues, onPatch, onKey, on
             )}
           </div>
         </Field>
+        <Field
+          label="Dossier de travail"
+          hint="Sous-dossier du projet où s'exécute l'étape. Vide = la racine. Les commandes ne peuvent pas faire « cd » : c'est ici que ça se règle."
+        >
+          <Text mono value={step.cwd ?? ""} onChange={(v) => onPatch({ cwd: v || null })} placeholder="tethr-motion" />
+        </Field>
         <Field label="Commandes" hint={lines.trim() ? "Exécutées dans l'ordre, sans LLM." : "Vide : l'étape est confiée à l'agent IA, qui décide lui-même."}>
           <Area mono rows={3} value={lines} onChange={(v) => onPatch({ commands: v.split("\n") })} placeholder={"npm test\nnpm run build"} />
         </Field>

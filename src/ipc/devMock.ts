@@ -133,12 +133,12 @@ const WORKFLOWS: Record<string, any>[] = [{
   id: "w1", projectId: "p1", name: "Release Spotly", description: "Prépare une release", enabled: true,
   trigger: { kind: "manual" },
   steps: [
-    { key: "analyse", title: "Analyse du dépôt", instruction: "", agentId: "a0", roleHint: null, dependsOn: [], requiresApproval: false, commands: ["git status --short"] },
-    { key: "tests_unitaires", title: "Tests unitaires", instruction: "", agentId: null, roleHint: "Assurance qualité", dependsOn: ["analyse"], requiresApproval: false, commands: ["./gradlew testDebugUnitTest"] },
-    { key: "lint", title: "Lint", instruction: "", agentId: "a1", roleHint: null, dependsOn: ["analyse"], requiresApproval: false, commands: ["./gradlew lint"] },
-    { key: "notes", title: "Notes de version", instruction: "Rédige les notes de version depuis le dernier tag.", agentId: null, roleHint: "Marketing", dependsOn: ["analyse"], requiresApproval: false, commands: [] },
-    { key: "build", title: "Build release", instruction: "", agentId: "a2", roleHint: null, dependsOn: ["tests_unitaires", "lint"], requiresApproval: true, commands: ["./gradlew assembleRelease"] },
-    { key: "publication", title: "Publication", instruction: "", agentId: null, roleHint: "Astronaute", dependsOn: ["build", "notes"], requiresApproval: false, commands: [] },
+    { key: "analyse", title: "Analyse du dépôt", instruction: "", agentId: "a0", roleHint: null, dependsOn: [], requiresApproval: false, cwd: null, commands: ["git status --short"] },
+    { key: "tests_unitaires", title: "Tests unitaires", instruction: "", agentId: null, roleHint: "Assurance qualité", dependsOn: ["analyse"], requiresApproval: false, cwd: null, commands: ["./gradlew testDebugUnitTest"] },
+    { key: "lint", title: "Lint", instruction: "", agentId: "a1", roleHint: null, dependsOn: ["analyse"], requiresApproval: false, cwd: null, commands: ["./gradlew lint"] },
+    { key: "notes", title: "Notes de version", instruction: "Rédige les notes de version depuis le dernier tag.", agentId: null, roleHint: "Marketing", dependsOn: ["analyse"], requiresApproval: false, cwd: null, commands: [] },
+    { key: "build", title: "Build release", instruction: "", agentId: "a2", roleHint: null, dependsOn: ["tests_unitaires", "lint"], requiresApproval: true, cwd: null, commands: ["./gradlew assembleRelease"] },
+    { key: "publication", title: "Publication", instruction: "", agentId: null, roleHint: "Astronaute", dependsOn: ["build", "notes"], requiresApproval: false, cwd: null, commands: [] },
   ],
 }];
 

@@ -241,6 +241,7 @@ async fn relance_apres_echec() {
 
 fn step(key: &str, agent: &AgentId, deps: &[&str], commands: &[&str]) -> WorkflowStep {
     WorkflowStep {
+        cwd: None,
         key: key.into(),
         title: format!("Étape {key}"),
         instruction: String::new(),

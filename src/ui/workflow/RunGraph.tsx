@@ -19,7 +19,7 @@ export function RunGraph({ steps, selected, onSelect }: {
   // La clé d'une carte est l'identifiant de sa tâche : unique par construction.
   const graph: WorkflowStep[] = useMemo(() => steps.map((s) => ({
     key: s.taskId, title: s.title, instruction: "", agentId: s.agentId, roleHint: null,
-    dependsOn: s.dependsOn, requiresApproval: false, commands: [],
+    dependsOn: s.dependsOn, requiresApproval: false, cwd: null, commands: [],
   })), [steps]);
 
   const check: WorkflowCheck = useMemo(() => ({

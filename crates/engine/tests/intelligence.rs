@@ -129,6 +129,7 @@ async fn agent_named(w: &World, name: &str) -> AgentId {
 /// Run à une étape confiée à un agent IA (aucune commande explicite).
 async fn ai_step(w: &World, agent: &str) -> TaskId {
     let step = WorkflowStep {
+        cwd: None,
         key: "ia".into(),
         title: "Étape IA".into(),
         instruction: "fais le travail".into(),
