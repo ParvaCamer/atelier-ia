@@ -290,16 +290,8 @@ impl Engine {
                 && t.depends_on.iter().all(|d| by_id.get(d).is_some_and(|x| x.status == TaskStatus::Completed))
         });
 
-        let already = repo::handoffs::list_by_run(self.db(), &done.run_id).await?;
         for next in unblocked {
             for dep in next.depends_on.iter().filter_map(|d| by_id.get(d)) {
-                // Deux dépendances finies au même instant : un seul relais par
-                // tentative (une relance de la dépendance en produit un nouveau).
-                if already.iter().any(|h| {
-                    h.from_task == dep.id && h.to_task == next.id && dep.finished_at.is_some_and(|f| h.created_at >= f)
-                }) {
-                    continue;
-                }
                 let handoff = Handoff {
                     id: HandoffId::new(),
                     run_id: done.run_id.clone(),
@@ -310,7 +302,13 @@ impl Engine {
                     summary: handoff_summary(dep.result.as_deref().unwrap_or_default()),
                     created_at: Utc::now(),
                 };
-                repo::handoffs::insert(self.db(), &handoff).await?;
+                // Deux dépendances finies au même instant déclenchent deux
+                // passages concurrents : c'est la base qui tranche, pas une
+                // lecture préalable, qui laissait passer des doublons.
+                let since = dep.finished_at.unwrap_or(handoff.created_at);
+                if !repo::handoffs::insert_if_new(self.db(), &handoff, since).await? {
+                    continue;
+                }
                 self.system_log(
                     &next.agent_id,
                     &next.project_id,

@@ -221,3 +221,70 @@ async fn base_existante_mise_a_jour_pour_les_skills() {
     assert!(slugs.contains(&"qa".to_string()) && slugs.contains(&"dev-front".to_string()), "{slugs:?}");
     let _ = std::fs::remove_file(&path);
 }
+
+#[tokio::test]
+async fn relais_insere_une_seule_fois_par_tentative() {
+    let db = seeded().await;
+    let project = repo::projects::list(&db).await.unwrap().remove(0);
+    let agent = repo::agents::list(&db).await.unwrap().into_iter().find(|a| a.project_id == project.id).unwrap();
+
+    let run = Run {
+        id: RunId::new(),
+        project_id: project.id.clone(),
+        workflow_id: None,
+        title: "Relais".into(),
+        request: None,
+        status: RunStatus::Running,
+        created_at: Utc::now(),
+        finished_at: None,
+    };
+    repo::runs::insert(&db, &run).await.unwrap();
+
+    let mk = |title: &str, deps: Vec<TaskId>| Task {
+        id: TaskId::new(),
+        run_id: run.id.clone(),
+        project_id: project.id.clone(),
+        agent_id: agent.id.clone(),
+        title: title.into(),
+        description: String::new(),
+        status: TaskStatus::Queued,
+        progress: 0.0,
+        depends_on: deps,
+        commands: vec![],
+        requires_approval: false,
+        result: None,
+        error: None,
+        attempt: 0,
+        created_at: Utc::now(),
+        started_at: None,
+        finished_at: None,
+    };
+    let a = mk("analyse", vec![]);
+    let b = mk("build", vec![a.id.clone()]);
+    repo::tasks::insert(&db, &a, 0).await.unwrap();
+    repo::tasks::insert(&db, &b, 1).await.unwrap();
+
+    let fin = Utc::now();
+    let relais = || Handoff {
+        id: HandoffId::new(),
+        run_id: run.id.clone(),
+        from_task: a.id.clone(),
+        to_task: b.id.clone(),
+        from_agent: agent.id.clone(),
+        to_agent: agent.id.clone(),
+        summary: "fait".into(),
+        created_at: Utc::now(),
+    };
+
+    // Deux passages du scheduler pour la même fin de tâche : un seul relais.
+    assert!(repo::handoffs::insert_if_new(&db, &relais(), fin).await.unwrap());
+    assert!(!repo::handoffs::insert_if_new(&db, &relais(), fin).await.unwrap(), "doublon accepté");
+    assert_eq!(repo::handoffs::list_by_run(&db, &run.id).await.unwrap().len(), 1);
+
+    // Étape relancée : la dépendance refinit plus tard, le relais est neuf.
+    let refin = Utc::now() + chrono::Duration::seconds(1);
+    let mut plus_tard = relais();
+    plus_tard.created_at = refin;
+    assert!(repo::handoffs::insert_if_new(&db, &plus_tard, refin).await.unwrap(), "une relance doit produire un relais");
+    assert_eq!(repo::handoffs::list_by_run(&db, &run.id).await.unwrap().len(), 2);
+}

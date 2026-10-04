@@ -20,10 +20,21 @@ fn map(row: &sqlx::sqlite::SqliteRow) -> Handoff {
     }
 }
 
-pub async fn insert(db: &Db, h: &Handoff) -> Result<()> {
-    sqlx::query(
+/// Insère le relais, sauf s'il en existe déjà un pour ce couple de tâches
+/// depuis `since` (l'instant où la dépendance a fini).
+///
+/// Tout tient dans **une seule instruction SQL** : deux passages simultanés
+/// du scheduler ne peuvent plus écrire le même relais tous les deux, ce que
+/// permettait un « lire la liste puis insérer ». Garder `since` dans la
+/// condition conserve le comportement voulu : une étape relancée produit
+/// bien un nouveau relais.
+pub async fn insert_if_new(db: &Db, h: &Handoff, since: DateTime<Utc>) -> Result<bool> {
+    let done = sqlx::query(
         "INSERT INTO handoffs (id, run_id, from_task, to_task, from_agent, to_agent, summary, created_at)
-         VALUES (?,?,?,?,?,?,?,?)",
+         SELECT ?,?,?,?,?,?,?,?
+         WHERE NOT EXISTS (
+             SELECT 1 FROM handoffs WHERE from_task = ? AND to_task = ? AND created_at >= ?
+         )",
     )
     .bind(h.id.as_str())
     .bind(h.run_id.as_str())
@@ -33,9 +44,12 @@ pub async fn insert(db: &Db, h: &Handoff) -> Result<()> {
     .bind(h.to_agent.as_str())
     .bind(&h.summary)
     .bind(h.created_at.to_rfc3339())
+    .bind(h.from_task.as_str())
+    .bind(h.to_task.as_str())
+    .bind(since.to_rfc3339())
     .execute(db.pool())
     .await?;
-    Ok(())
+    Ok(done.rows_affected() > 0)
 }
 
 pub async fn list_by_run(db: &Db, run: &RunId) -> Result<Vec<Handoff>> {
