@@ -124,7 +124,7 @@ const PROVIDERS = [
   { id: "ollama", kind: "ollama", label: "Ollama (local)", baseUrl: "http://127.0.0.1:11434", enabled: true, hasKey: false },
   { id: "openai", kind: "openai", label: "OpenAI (clé d'API)", baseUrl: "https://api.openai.com/v1", enabled: false, hasKey: false },
 ];
-let SETTINGS = { startOllamaWithApp: false };
+let SETTINGS = { startOllamaWithApp: false, embeddingModel: "nomic-embed-text" };
 const WORKFLOWS: Record<string, any>[] = [{
   id: "w1", projectId: "p1", name: "Release Spotly", description: "Prépare une release", enabled: true,
   trigger: { kind: "manual" },
@@ -337,7 +337,10 @@ export function installDevMock() {
       ];
       case "start_ollama": return null;
       case "get_settings": return SETTINGS;
-      case "save_settings": SETTINGS = args.settings; return SETTINGS;
+      case "save_settings":
+        if (!/^[A-Za-z0-9._:/-]*$/.test(args.settings.embeddingModel.trim())) throw `modèle d'embeddings « ${args.settings.embeddingModel.trim()} » invalide : nom de modèle Ollama attendu (ex. nomic-embed-text)`;
+        SETTINGS = { ...args.settings, embeddingModel: args.settings.embeddingModel.trim() };
+        return SETTINGS;
       case "tool_catalog": return [
         { id: "fs.delete", description: "Supprime un fichier du projet (jamais un dossier)." },
         { id: "fs.list", description: "Liste le contenu d'un dossier du projet." },

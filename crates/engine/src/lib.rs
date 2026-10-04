@@ -14,6 +14,7 @@ pub mod memory;
 pub mod orchestrator;
 pub mod schedules;
 pub mod scheduler;
+pub mod semantic;
 pub mod watches;
 pub mod world;
 
@@ -53,11 +54,13 @@ pub struct EngineConfig {
     /// fichiers. Désactivé dans les tests, qui appellent `fire_due` et
     /// `poll_watches` avec une horloge contrôlée.
     pub run_schedules: bool,
+    /// `None` → Ollama, selon les réglages. Injecté par les tests.
+    pub embedder: Option<Arc<dyn semantic::Embedder>>,
 }
 
 impl Default for EngineConfig {
     fn default() -> Self {
-        Self { max_concurrent: 4, env: None, providers: None, run_schedules: true }
+        Self { max_concurrent: 4, env: None, providers: None, run_schedules: true, embedder: None }
     }
 }
 
@@ -132,6 +135,14 @@ impl Engine {
         if engine.config.run_schedules {
             engine.clone().spawn_schedule_ticker();
             engine.clone().spawn_watch_ticker();
+            // Souvenirs saisis avant les embeddings, ou pendant qu'Ollama
+            // était éteint : indexés en fond, sans retarder le démarrage.
+            let me = engine.clone();
+            tokio::spawn(async move {
+                if let Err(e) = me.backfill_embeddings().await {
+                    tracing::debug!("indexation de la mémoire : {e}");
+                }
+            });
         }
         Ok(engine)
     }

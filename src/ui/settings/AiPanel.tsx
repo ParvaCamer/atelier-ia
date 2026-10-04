@@ -55,6 +55,8 @@ export function AiPanel() {
       </p>
       <Feedback error={job.error} ok={null} />
 
+      <EmbeddingSetting />
+
       <div className="ai-head">
         <h2>Modèles</h2>
         <button className="btn ghost small" onClick={() => setAdding(true)} disabled={adding}>+ Nouvel alias</button>
@@ -81,6 +83,40 @@ export function AiPanel() {
           />
         )}
       </div>
+    </div>
+  );
+}
+
+/** Recherche par sens dans la mémoire : modèle Ollama, local, jamais payant. */
+function EmbeddingSetting() {
+  const settings = useConfig((s) => s.settings);
+  const afterSave = useConfig((s) => s.afterSave);
+  const ollama = useConfig((s) => s.health.find((h) => h.providerId === "ollama"));
+  const [model, setModel] = useState(settings.embeddingModel);
+  const job = useJob();
+  const pulled = !model.trim() || (ollama?.models ?? []).some((m) => m === model.trim() || m.startsWith(`${model.trim()}:`));
+
+  return (
+    <div className="embedding">
+      <div className="ai-head"><h2>Mémoire : recherche par sens</h2></div>
+      <div className="provider-actions">
+        <input
+          className="input" data-mono list="models-ollama" value={model} placeholder="vide = recherche par mots seulement"
+          aria-label="Modèle d'embeddings Ollama" onChange={(e) => setModel(e.target.value)}
+        />
+        {model !== settings.embeddingModel && (
+          <button className="btn small" disabled={job.busy} onClick={async () => {
+            const saved = await job.run(() => api.saveSettings({ ...settings, embeddingModel: model }), "Enregistré.");
+            if (saved) { setModel(saved.embeddingModel); await afterSave(); }
+          }}>Enregistrer</button>
+        )}
+      </div>
+      <p className="note">
+        Les souvenirs sont aussi retrouvés par proximité de sens, calculée par Ollama sur cette machine.
+        Ollama éteint ou modèle absent : la recherche se fait par mots, comme avant — jamais par un service payant.
+        {!pulled && ollama?.state === "ok" && <> Modèle absent d'Ollama : lance <code>ollama pull {model.trim()}</code>.</>}
+      </p>
+      <FeedbackLine error={job.error} ok={job.ok} />
     </div>
   );
 }

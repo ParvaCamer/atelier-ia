@@ -554,6 +554,15 @@ d'une mesure réelle sur llama3.2, pas d'une intuition :
 | Autonomie : pas de « ce problème », « cela »… | « pour éviter ce problème, utilisez un émulateur » |
 | Importance fixée par la nature | le modèle note tout à 1,0 |
 
+**Recherche par sens (implémentée, lot 6).** Chaque souvenir reçoit un
+vecteur calculé par Ollama (`/api/embeddings`, modèle réglable dans
+Réglages › IA), rangé avec lui (migration 0009, modèle noté). Au
+lancement d'une tâche, le classement FTS5 et le classement par similarité
+cosinus (calculée en Rust) sont fusionnés par rang réciproque. Ollama
+éteint, modèle absent ou réglage vide : FTS5 seul, à l'identique — jamais
+d'appel payant, jamais de repli par le registre. Les souvenirs sans
+vecteur sont indexés en fond au démarrage.
+
 Chaque souvenir garde un lien vers la tâche qui l'a produit, et reste
 visible, modifiable et supprimable (Réglages › Mémoire). Sa saisie manuelle
 passe par les mêmes contrôles (secrets refusés).

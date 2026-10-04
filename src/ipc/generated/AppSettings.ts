@@ -5,4 +5,9 @@ export type AppSettings = {
  * Lancer l'app Ollama au démarrage d'Atelier si elle est éteinte.
  * Sans ça, l'aiguillage se replie en silence sur Claude Code (quota).
  */
-startOllamaWithApp: boolean, };
+startOllamaWithApp: boolean, 
+/**
+ * Modèle Ollama d'embeddings pour la recherche par sens dans la mémoire.
+ * Vide = recherche par mots seulement. Jamais un fournisseur payant.
+ */
+embeddingModel: string, };

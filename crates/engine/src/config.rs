@@ -753,6 +753,11 @@ impl Engine {
     }
 
     pub async fn save_settings(&self, settings: AppSettings) -> anyhow::Result<AppSettings> {
+        let embedding_model = settings.embedding_model.trim().to_string();
+        if !embedding_model.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':' | '/')) {
+            anyhow::bail!("modèle d'embeddings « {embedding_model} » invalide : nom de modèle Ollama attendu (ex. nomic-embed-text)");
+        }
+        let settings = AppSettings { embedding_model, ..settings };
         repo::settings::set(self.db(), SETTINGS_KEY, &settings).await?;
         Ok(settings)
     }

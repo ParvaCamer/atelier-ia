@@ -153,6 +153,12 @@ pub async fn get(db: &Db, id: &MemoryId) -> Result<MemoryEntry> {
 
 /// Mise à jour du contenu ; l'index plein texte suit via le trigger `memory_au`.
 pub async fn update(db: &Db, m: &MemoryEntry) -> Result<()> {
+    // Le texte a changé : l'ancien vecteur mentirait sur son sens.
+    sqlx::query("UPDATE memory_entries SET embedding = NULL, embedding_model = NULL WHERE id = ? AND content <> ?")
+        .bind(m.id.as_str())
+        .bind(&m.content)
+        .execute(db.pool())
+        .await?;
     sqlx::query(
         "UPDATE memory_entries SET scope = ?, kind = ?, project_id = ?, agent_id = ?, content = ?, importance = ?
          WHERE id = ?",
@@ -172,4 +178,51 @@ pub async fn update(db: &Db, m: &MemoryEntry) -> Result<()> {
 pub async fn delete(db: &Db, id: &MemoryId) -> Result<()> {
     sqlx::query("DELETE FROM memory_entries WHERE id = ?").bind(id.as_str()).execute(db.pool()).await?;
     Ok(())
+}
+
+// -------------------------------------------------------------- vecteurs
+
+fn to_blob(v: &[f32]) -> Vec<u8> {
+    v.iter().flat_map(|x| x.to_le_bytes()).collect()
+}
+
+fn from_blob(b: &[u8]) -> Vec<f32> {
+    b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
+}
+
+pub async fn set_embedding(db: &Db, id: &MemoryId, model: &str, vector: &[f32]) -> Result<()> {
+    sqlx::query("UPDATE memory_entries SET embedding = ?, embedding_model = ? WHERE id = ?")
+        .bind(to_blob(vector))
+        .bind(model)
+        .bind(id.as_str())
+        .execute(db.pool())
+        .await?;
+    Ok(())
+}
+
+/// Souvenirs d'un projet (et globaux) portant un vecteur du modèle donné.
+pub async fn with_embeddings(db: &Db, project: &ProjectId, model: &str, limit: i64) -> Result<Vec<(MemoryEntry, Vec<f32>)>> {
+    let rows = sqlx::query(
+        "SELECT * FROM memory_entries
+         WHERE embedding IS NOT NULL AND embedding_model = ?1 AND (project_id = ?2 OR project_id IS NULL)
+         ORDER BY created_at DESC LIMIT ?3",
+    )
+    .bind(model)
+    .bind(project.as_str())
+    .bind(limit)
+    .fetch_all(db.pool())
+    .await?;
+    rows.iter().map(|r| Ok((map(r)?, from_blob(&r.get::<Vec<u8>, _>("embedding"))))).collect()
+}
+
+/// Souvenirs sans vecteur pour ce modèle : à indexer quand Ollama répond.
+pub async fn missing_embeddings(db: &Db, model: &str, limit: i64) -> Result<Vec<MemoryEntry>> {
+    let rows = sqlx::query(
+        "SELECT * FROM memory_entries WHERE embedding IS NULL OR embedding_model IS NOT ?1 ORDER BY created_at DESC LIMIT ?2",
+    )
+    .bind(model)
+    .bind(limit)
+    .fetch_all(db.pool())
+    .await?;
+    rows.iter().map(map).collect()
 }

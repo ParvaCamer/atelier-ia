@@ -100,6 +100,37 @@ impl Provider for Ollama {
     }
 }
 
+/// Vecteur d'un texte par `/api/embeddings`. Appel direct, sans registre ni
+/// repli : la recherche par sens ne doit jamais coûter un appel payant.
+pub async fn embed(base_url: &str, model: &str, text: &str) -> Result<Vec<f32>, ProviderError> {
+    let http = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(1))
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| ProviderError::Other(e.to_string()))?;
+    let response = http
+        .post(format!("{}/api/embeddings", base_url.trim_end_matches('/')))
+        .json(&json!({ "model": model, "prompt": text }))
+        .send()
+        .await
+        .map_err(|e| ProviderError::Unavailable(format!("Ollama injoignable ({e})")))?;
+    if response.status().as_u16() == 404 {
+        return Err(ProviderError::Unavailable(format!("modèle « {model} » absent — lance `ollama pull {model}`")));
+    }
+    if !response.status().is_success() {
+        return Err(ProviderError::Other(format!("Ollama {}", response.status())));
+    }
+    let payload: Value = response.json().await.map_err(|e| ProviderError::InvalidResponse(e.to_string()))?;
+    let vector: Vec<f32> = payload["embedding"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect())
+        .unwrap_or_default();
+    if vector.is_empty() {
+        return Err(ProviderError::InvalidResponse("vecteur vide".into()));
+    }
+    Ok(vector)
+}
+
 fn truncate(s: &str) -> String {
     s.chars().take(300).collect()
 }

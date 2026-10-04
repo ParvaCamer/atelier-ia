@@ -33,6 +33,9 @@ const KEEP_RECENT: usize = 8;
 /// système est payé à chaque décision : un skill bavard coûte à chaque appel.
 pub const SKILL_BUDGET: usize = 4_000;
 pub const SKILL_NOTES_BUDGET: usize = 800;
+/// Souvenirs injectés au plus, dont ceux rapprochés de la tâche.
+const MEMORY_LINES: usize = 20;
+const MEMORY_HITS: usize = 6;
 
 #[derive(Debug, Deserialize)]
 struct AgentAction {
@@ -220,17 +223,22 @@ impl Engine {
         out.push_str(&skill_section(db, agent).await);
 
         // Mémoire : conventions et échecs connus d'abord, puis ce que la
-        // recherche plein texte rapproche de la tâche.
-        let mut memory = repo::memory::baseline(db, &project.id, &agent.id).await?;
+        // recherche (mots exacts et proximité de sens) rapproche de la tâche.
+        // Les souvenirs rapprochés gardent leur place même quand le socle est
+        // plein : sans cette réserve, ils étaient coupés au-delà de 20 lignes.
+        let baseline = repo::memory::baseline(db, &project.id, &agent.id).await?;
         let query = format!("{} {}", task.title, task.description);
-        for hit in repo::memory::search(db, &project.id, &query, 6).await? {
+        let hits = self.recall_memories(&project.id, &query, MEMORY_HITS).await?;
+        let room = MEMORY_LINES.saturating_sub(hits.iter().filter(|h| !baseline.iter().any(|b| b.id == h.id)).count());
+        let mut memory: Vec<MemoryEntry> = baseline.into_iter().take(room).collect();
+        for hit in hits {
             if !memory.iter().any(|m| m.id == hit.id) {
                 memory.push(hit);
             }
         }
         if !memory.is_empty() {
             out.push_str("\n## Ce que l'on sait déjà\n");
-            for m in memory.iter().take(20) {
+            for m in memory.iter().take(MEMORY_LINES) {
                 out.push_str(&format!("- [{:?}] {}\n", m.kind, m.content));
             }
         }

@@ -161,7 +161,7 @@ impl Engine {
                 _ => 0.5,
             };
 
-            repo::memory::insert(db, &MemoryEntry {
+            let entry = MemoryEntry {
                 id: MemoryId::new(),
                 scope,
                 kind: e.kind,
@@ -172,8 +172,9 @@ impl Engine {
                 content: content.clone(),
                 importance,
                 created_at: Utc::now(),
-            })
-            .await?;
+            };
+            repo::memory::insert(db, &entry).await?;
+            self.index_memory(&entry).await;
             accepted.push((e.kind, content));
         }
 
@@ -258,6 +259,7 @@ impl Engine {
         } else {
             repo::memory::insert(db, &entry).await?;
         }
+        self.index_memory(&entry).await;
         Ok(entry)
     }
 

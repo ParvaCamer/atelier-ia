@@ -317,7 +317,7 @@ async fn ollama_injoignable_signale() {
     let h = health.iter().find(|h| h.provider_id == "ollama").unwrap();
     assert_eq!(h.state, HealthState::Unavailable, "{}", h.detail);
 
-    let settings = e.save_settings(AppSettings { start_ollama_with_app: true }).await.unwrap();
+    let settings = e.save_settings(AppSettings { start_ollama_with_app: true, ..Default::default() }).await.unwrap();
     assert!(e.settings().await.unwrap().start_ollama_with_app == settings.start_ollama_with_app);
 }
 

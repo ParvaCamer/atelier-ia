@@ -65,13 +65,29 @@ pub struct ToolInfo {
     pub description: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct AppSettings {
     /// Lancer l'app Ollama au démarrage d'Atelier si elle est éteinte.
     /// Sans ça, l'aiguillage se replie en silence sur Claude Code (quota).
     pub start_ollama_with_app: bool,
+    /// Modèle Ollama d'embeddings pour la recherche par sens dans la mémoire.
+    /// Vide = recherche par mots seulement. Jamais un fournisseur payant.
+    #[serde(default = "default_embedding_model")]
+    pub embedding_model: String,
+}
+
+pub const DEFAULT_EMBEDDING_MODEL: &str = "nomic-embed-text";
+
+fn default_embedding_model() -> String {
+    DEFAULT_EMBEDDING_MODEL.into()
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self { start_ollama_with_app: false, embedding_model: default_embedding_model() }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

@@ -50,7 +50,7 @@ export const useConfig = create<ConfigStore>((set, get) => ({
   health: [],
   healthLoading: false,
   tools: [],
-  settings: { startOllamaWithApp: false },
+  settings: { startOllamaWithApp: false, embeddingModel: "nomic-embed-text" },
   skills: [],
 
   openAt: (section, focusId = null) =>

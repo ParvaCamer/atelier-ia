@@ -48,6 +48,10 @@ struct World {
 /// `extraction_down` : la route de mémoire pointe vers un fournisseur éteint,
 /// avec un repli vers le script — pour vérifier que ce repli n'est PAS utilisé.
 async fn world(replies: Vec<Value>, extraction_down: bool) -> World {
+    world_with(replies, extraction_down, None).await
+}
+
+async fn world_with(replies: Vec<Value>, extraction_down: bool, embedder: Option<Arc<dyn atelier_engine::semantic::Embedder>>) -> World {
     let db = Db::open_in_memory().await.unwrap();
     let root = std::env::temp_dir().join(format!("atelier-p4-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&root).unwrap();
@@ -82,7 +86,7 @@ async fn world(replies: Vec<Value>, extraction_down: bool) -> World {
         .with_route("reasoning.default", route("fake", None))
         .with_route("summarize.fast", if extraction_down { route("down", Some("reasoning.default")) } else { route("fake", None) });
 
-    let engine = Engine::start_with(db, EngineConfig { providers: Some(registry), run_schedules: false, ..Default::default() })
+    let engine = Engine::start_with(db, EngineConfig { providers: Some(registry), run_schedules: false, embedder, ..Default::default() })
         .await
         .unwrap();
     World { engine, project: project.id, agent: agent.id, script }
@@ -491,4 +495,92 @@ async fn surveillance_refusee_sans_dossier_de_projet() {
     w.engine.save_watch(watch(wf.clone(), &["*"], 5)).await.unwrap();
     w.engine.delete_workflow(&wf).await.unwrap();
     assert!(w.engine.list_watches().await.unwrap().is_empty());
+}
+
+// ================================================================ recherche par sens
+
+/// Vecteurs fournis à la main, par mot-clé : aucun appel réseau. `None`
+/// simule Ollama éteint.
+struct HandEmbedder(Option<Vec<(&'static str, Vec<f32>)>>);
+
+#[async_trait]
+impl atelier_engine::semantic::Embedder for HandEmbedder {
+    async fn embed(&self, text: &str) -> Option<(String, Vec<f32>)> {
+        let table = self.0.as_ref()?;
+        let lower = text.to_lowercase();
+        let v = table.iter().find(|(k, _)| lower.contains(k)).map(|(_, v)| v.clone()).unwrap_or_else(|| vec![0.0, 0.0, 1.0]);
+        Some(("modele-test".into(), v))
+    }
+}
+
+fn hand_vectors() -> Vec<(&'static str, Vec<f32>)> {
+    vec![
+        // Le souvenir pertinent et la requête : même direction, aucun mot commun.
+        ("émulateur", vec![1.0, 0.05, 0.0]),
+        ("appareil virtuel", vec![0.95, 0.1, 0.0]),
+        ("koin", vec![0.0, 1.0, 0.0]),
+    ]
+}
+
+async fn remember(w: &World, content: &str) -> MemoryEntry {
+    w.engine.save_memory(MemoryEntry {
+        id: MemoryId(String::new()), scope: MemoryScope::Project, kind: MemoryKind::Fact, project_id: Some(w.project.clone()),
+        agent_id: None, run_id: None, task_id: None, content: content.into(), importance: 0.5, created_at: Utc::now(),
+    }).await.unwrap()
+}
+
+const QUERY: &str = "préparer un appareil virtuel pour des vérifications";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn recherche_fusionnee_retrouve_ce_que_fts_rate() {
+    let w = world_with(vec![], false, Some(Arc::new(HandEmbedder(Some(hand_vectors()))))).await;
+    let relevant = remember(&w, "Les tests d'instrumentation exigent un émulateur démarré.").await;
+    remember(&w, "L'injection de dépendances utilise Koin.").await;
+    let lexical = remember(&w, "Les vérifications de style passent par ktlint.").await;
+
+    // FTS5 seul : rate le souvenir pertinent (aucun mot en commun).
+    let fts = repo::memory::search(w.engine.db(), &w.project, QUERY, 6).await.unwrap();
+    assert!(!fts.iter().any(|m| m.id == relevant.id), "le test suppose que FTS5 le rate");
+    assert!(fts.iter().any(|m| m.id == lexical.id), "FTS5 trouve bien le recouvrement de mots");
+
+    let fused = w.engine.recall_memories(&w.project, QUERY, 6).await.unwrap();
+    let rank = fused.iter().position(|m| m.id == relevant.id);
+    assert!(rank.is_some_and(|r| r < 2), "le souvenir proche par le sens remonte parmi les premiers : {fused:?}");
+    assert!(fused.iter().any(|m| m.id == lexical.id), "fusion, pas remplacement : le résultat lexical reste");
+    assert!(!fused.iter().any(|m| m.content.contains("Koin")), "un souvenir sans rapport n'est pas remonté");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ollama_absent_comportement_identique_a_fts() {
+    // Mêmes souvenirs, mais l'embedder ne répond pas.
+    let w = world_with(vec![], false, Some(Arc::new(HandEmbedder(None)))).await;
+    remember(&w, "Les tests d'instrumentation exigent un émulateur démarré.").await;
+    remember(&w, "Les vérifications de style passent par ktlint.").await;
+    remember(&w, "Les vérifications réseau passent par un faux serveur.").await;
+
+    let fts = repo::memory::search(w.engine.db(), &w.project, QUERY, 6).await.unwrap();
+    let recalled = w.engine.recall_memories(&w.project, QUERY, 6).await.unwrap();
+    let ids = |v: &[MemoryEntry]| v.iter().map(|m| m.id.clone()).collect::<Vec<_>>();
+    assert_eq!(ids(&recalled), ids(&fts), "sans Ollama : exactement le classement d'aujourd'hui");
+    assert_eq!(fts.len(), 2);
+    assert!(repo::memory::missing_embeddings(w.engine.db(), "modele-test", 10).await.unwrap().len() == 3, "aucun vecteur rangé");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn le_contexte_de_l_agent_profite_de_la_recherche_par_sens() {
+    let finish = json!({"thought": "ok", "action": "finish", "summary": "fait"});
+    let w = world_with(vec![finish], false, Some(Arc::new(HandEmbedder(Some(hand_vectors()))))).await;
+    // Importance basse : hors du socle de souvenirs toujours chargés.
+    let relevant = remember(&w, "Les tests d'instrumentation exigent un émulateur démarré.").await;
+    sqlx::query("UPDATE memory_entries SET importance = 0").execute(w.engine.db().pool()).await.unwrap();
+    for i in 0..45 {
+        remember(&w, &format!("Fait sans rapport numéro {i} sur la comptabilité.")).await;
+    }
+
+    let mut s = step("ia", &w.agent, &[]);
+    s.title = QUERY.into();
+    let run = w.engine.create_run(&w.project, "Test", None, None, &[s]).await.unwrap();
+    wait_task(&w, &run, TaskStatus::Completed).await;
+    let system = w.script.seen.lock().unwrap()[0].system.clone();
+    assert!(system.contains(&relevant.content), "souvenir retrouvé par le sens absent du contexte");
 }
