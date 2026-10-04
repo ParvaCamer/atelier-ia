@@ -6,17 +6,18 @@
  * changement de sélection — c'est-à-dire à peu près jamais.
  */
 import {
-  Color, DirectionalLight, Fog, HemisphereLight, PerspectiveCamera, Raycaster,
+  PerspectiveCamera, Raycaster,
   Scene, Vector2, Vector3, WebGLRenderer,
 } from "three";
 import { useConfig } from "../state/config";
 import { useHistory } from "../state/history";
 import { useWorld } from "../state/store";
 import { AgentLayer } from "./AgentLayer";
-import { HandoffLayer } from "./HandoffLayer";
+import { ConveyorLayer } from "./ConveyorLayer";
 import { Visitor, type WalkInput } from "./Visitor";
 import type { Box } from "./nav";
-import { SceneryLayer, makeGrid, makeGround } from "./SceneryLayer";
+import { SceneryLayer } from "./SceneryLayer";
+import { darkness, Environment } from "./environment";
 import { buildLayout, type ZoneLayout } from "./layout";
 import { GROUND } from "./palette";
 
@@ -53,7 +54,7 @@ export class WorldRenderer {
   private scene = new Scene();
   private camera: PerspectiveCamera;
   private agents: AgentLayer;
-  private handoffs: HandoffLayer;
+  private conveyors: ConveyorLayer;
   private visitor = new Visitor();
   private mode: ViewMode = "aerial";
   private keys = new Set<string>();
@@ -63,6 +64,9 @@ export class WorldRenderer {
   private platforms: Box[] = [];
   private limits: Box = { minX: -60, maxX: 60, minZ: -60, maxZ: 60 };
   private scenery: SceneryLayer;
+  private environment: Environment;
+  /** Dernier niveau d'obscurité appliqué aux lumières de l'usine. */
+  private lit = -1;
   private zones = new Map<string, ZoneLayout>();
 
   private raycaster = new Raycaster();
@@ -100,30 +104,13 @@ export class WorldRenderer {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setClearColor(GROUND, 1);
 
-    this.scene.background = new Color(GROUND);
-    // Le brouillard n'intervient qu'au-delà des zones : il estompe le sol
-    // lointain sans ternir le monde lui-même. Réglé trop court, il vide
-    // littéralement la scène de sa couleur.
-    this.scene.fog = new Fog(GROUND.getHex(), 105, 240);
+    // Ciel, soleil, brouillard et terrain : tout suit l'heure locale.
+    this.environment = new Environment(this.scene);
 
-    this.camera = new PerspectiveCamera(42, 1, 0.5, 300);
-
-    // Deux directionnelles sans ombre portée : une principale pour le
-    // modelé, une d'appoint pour que les faces opposées ne tombent pas
-    // dans le noir absolu. Le budget d'ombres passe dans les décalques
-    // au sol (cf. parts.ts), bien moins coûteux qu'une shadow map.
-    const key = new DirectionalLight(0xe8f0ff, 2.1);
-    key.position.set(20, 34, 16);
-    this.scene.add(key);
-    const fill = new DirectionalLight(0x9ab8e8, 0.55);
-    fill.position.set(-22, 14, -18);
-    this.scene.add(fill);
-    this.scene.add(new HemisphereLight(0xa8c6ff, 0x0d131c, 1.15));
-    this.scene.add(makeGround());
-    this.scene.add(makeGrid());
+    this.camera = new PerspectiveCamera(42, 1, 0.5, 500);
 
     this.agents = new AgentLayer(this.scene);
-    this.handoffs = new HandoffLayer(this.scene);
+    this.conveyors = new ConveyorLayer(this.scene);
     this.scene.add(this.visitor.group);
     this.scenery = new SceneryLayer(this.scene);
 
@@ -151,13 +138,11 @@ export class WorldRenderer {
       if (!projects.length) return;
       this.zones = buildLayout(projects, agents);
 
-      const byProject = new Map<string, string[]>();
-      for (const a of agents) {
-        const list = byProject.get(a.projectId) ?? [];
-        list.push(a.id);
-        byProject.set(a.projectId, list);
-      }
-      this.scenery.build([...this.zones.values()], byProject);
+      this.scenery.build([...this.zones.values()]);
+      this.conveyors.setMachines(this.zones.values());
+      // Décor neuf, lumières éteintes : on les remet à l'heure.
+      this.lit = -1;
+      this.applyNight();
       const zones = [...this.zones.values()];
       this.obstacles = zones.flatMap((z) => z.obstacles);
       this.platforms = zones.map(({ project: { zone } }) => ({
@@ -198,8 +183,7 @@ export class WorldRenderer {
     this.mode = mode;
     this.keys.clear();
     if (mode === "walk") {
-      const at = this.desired.target.clone();
-      at.y = 0;
+      const at = freeSpot(this.desired.target, this.obstacles);
       this.visitor.spawn(at, this.orbit.theta);
       this.agents.setVisitor(this.visitor.pos);
     } else {
@@ -447,6 +431,7 @@ export class WorldRenderer {
       this.elapsed += dt;
 
       this.pullSnapshot();
+      if (this.environment.update()) this.applyNight();
       let visitorMoving = false;
       if (this.mode === "walk") {
         visitorMoving = this.visitor.update(dt, this.walkInput(), this.obstacles, this.platforms, this.agents.positions(), this.limits);
@@ -456,15 +441,12 @@ export class WorldRenderer {
         this.updateCamera(dt);
       }
       const agentsMoving = this.agents.update(dt, this.elapsed, this.camera.position);
-      const relays = useWorld.getState().relays;
-      const relaying = relays.some((r) => now - r.at < 3000);
+      const { relays, snapshot } = useWorld.getState();
+      const relaying = this.conveyors.update(this.elapsed, now, snapshot.runs, relays);
       this.lively = agentsMoving || relaying || visitorMoving;
-      this.handoffs.update(useWorld.getState().relays, now, (id, out) => this.agents.positionOf(id, out));
-      this.scenery.updateScreens(
-        (id) => this.agents.isAtDesk(id),
-        this.accentByProject(),
-        this.projectByAgent(),
-      );
+      const atPost = (id: string) => this.agents.isAtDesk(id);
+      this.scenery.updateScreens(atPost, this.accentByProject());
+      this.scenery.animate(this.elapsed, atPost);
       this.renderer.render(this.scene, this.camera);
     };
     this.last = performance.now();
@@ -488,13 +470,19 @@ export class WorldRenderer {
     return this.accents;
   }
 
-  private owners = new Map<string, string>();
-  private projectByAgent() {
-    const agents = useWorld.getState().agents;
-    if (this.owners.size !== agents.length) {
-      this.owners = new Map(agents.map((a) => [a.id, a.projectId]));
-    }
-    return this.owners;
+  /** Impose une heure (0–24) pour juger l'éclairage ; `null` = heure réelle. */
+  setClock(hour: number | null) {
+    this.environment.setClock(hour);
+    this.environment.update();
+    this.applyNight();
+  }
+
+  /** La nuit, projecteurs, voyants et écrans des machines s'allument. */
+  private applyNight() {
+    const dark = Math.round(darkness(this.environment.hour()) * 20) / 20;
+    if (dark === this.lit) return;
+    this.lit = dark;
+    this.scenery.setNight(dark);
   }
 
   /** La caméra n'a pas encore rejoint sa consigne (glissement, zoom, cadrage). */
@@ -544,10 +532,27 @@ export class WorldRenderer {
     window.removeEventListener("blur", this.onBlur);
     this.unsubscribe.forEach((fn) => fn());
     this.agents.dispose();
-    this.handoffs.dispose();
+    this.conveyors.dispose();
     this.scenery.dispose();
     this.renderer.dispose();
   }
+}
+
+/**
+ * Point libre le plus proche de `p` (spirale autour de lui) : on ne fait
+ * jamais apparaître le personnage dans une machine.
+ */
+function freeSpot(p: Vector3, obstacles: readonly Box[]): Vector3 {
+  const blocked = (x: number, z: number) => obstacles.some((b) => x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ);
+  for (let r = 0; r < 20; r += 0.5) {
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      const x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
+      if (!blocked(x, z)) return new Vector3(x, 0, z);
+      if (r === 0) break;
+    }
+  }
+  return new Vector3(p.x, 0, p.z);
 }
 
 function clamp(v: number, lo: number, hi: number) {

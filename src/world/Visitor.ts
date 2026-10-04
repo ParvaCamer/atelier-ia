@@ -8,9 +8,9 @@
  */
 import {
   Color, Group, Mesh, MeshBasicMaterial, MeshLambertMaterial, PerspectiveCamera, RingGeometry, Vector3,
-  BoxGeometry, ConeGeometry, DoubleSide,
+  ConeGeometry, DoubleSide,
 } from "three";
-import { parts } from "./parts";
+import { HIP_Y, SHOULDER_X, SHOULDER_Y, parts } from "./parts";
 import { inside, pushOut, type Box } from "./nav";
 import { AGENT_RADIUS } from "./layout";
 
@@ -40,28 +40,30 @@ export class Visitor {
   distance = 6;
   private readonly armL: Mesh;
   private readonly armR: Mesh;
+  private readonly legL: Mesh;
+  private readonly legR: Mesh;
   private readonly body = new Group();
   private readonly camPos = new Vector3();
   private readonly lookAt = new Vector3();
   private placed = false;
 
   constructor() {
-    // Silhouette volontairement différente des agents : carrosserie claire,
-    // casquette jaune, anneau au sol — on se retrouve d'un coup d'œil.
-    const light = new MeshLambertMaterial({ color: new Color("#e8edf4") });
-    const dark = new MeshLambertMaterial({ color: new Color("#0b1119") });
+    // Même silhouette de pionnier que les agents, mais combinaison claire,
+    // casque jaune et anneau au sol : on se retrouve d'un coup d'œil.
+    const suit = new MeshLambertMaterial({ color: new Color("#e8edf4") });
+    const dark = new MeshLambertMaterial({ color: new Color("#262c34") });
     const accent = new MeshLambertMaterial({ color: new Color("#facc15") });
-    this.body.add(new Mesh(parts.base, dark), new Mesh(parts.body, light), new Mesh(parts.neck, dark), new Mesh(parts.head, light), new Mesh(parts.visor, dark));
-    const cap = new Mesh(new BoxGeometry(0.48, 0.09, 0.46), accent);
-    cap.position.set(0, 1.42, 0);
-    const brim = new Mesh(new BoxGeometry(0.4, 0.04, 0.2), accent);
-    brim.position.set(0, 1.39, 0.3);
-    this.body.add(cap, brim);
-    this.armL = new Mesh(parts.arm, light);
-    this.armR = new Mesh(parts.arm, light);
-    this.armL.position.set(0.37, 0.92, 0);
-    this.armR.position.set(-0.37, 0.92, 0);
-    this.body.add(this.armL, this.armR);
+    const visor = new MeshBasicMaterial({ color: new Color("#7dd3fc") });
+    this.body.add(new Mesh(parts.torso, suit), new Mesh(parts.trim, dark), new Mesh(parts.pack, dark), new Mesh(parts.helmet, accent), new Mesh(parts.visor, visor));
+    this.legL = new Mesh(parts.leg, suit);
+    this.legR = new Mesh(parts.leg, suit);
+    this.legL.position.set(0.12, HIP_Y, 0);
+    this.legR.position.set(-0.12, HIP_Y, 0);
+    this.armL = new Mesh(parts.arm, suit);
+    this.armR = new Mesh(parts.arm, suit);
+    this.armL.position.set(SHOULDER_X, SHOULDER_Y, 0);
+    this.armR.position.set(-SHOULDER_X, SHOULDER_Y, 0);
+    this.body.add(this.legL, this.legR, this.armL, this.armR);
     this.group.add(this.body);
 
     const ringGeo = new RingGeometry(0.42, 0.52, 32);
@@ -135,12 +137,14 @@ export class Visitor {
     const floor = onPlatform ? 0 : GROUND_Y;
     this.pos.y += (floor - this.pos.y) * Math.min(1, dt * 12);
 
-    const bob = Math.abs(Math.sin(this.phase)) * 0.06 * this.motion;
+    const bob = Math.abs(Math.sin(this.phase)) * 0.04 * this.motion;
     this.group.position.set(this.pos.x, this.pos.y + bob, this.pos.z);
     this.body.rotation.set(0, this.heading, 0);
-    const swing = Math.sin(this.phase) * 0.8 * this.motion;
-    this.armL.rotation.set(swing, 0, 0.08);
-    this.armR.rotation.set(-swing, 0, -0.08);
+    const swing = Math.sin(this.phase) * this.motion;
+    this.legL.rotation.set(swing * 0.65, 0, 0);
+    this.legR.rotation.set(-swing * 0.65, 0, 0);
+    this.armL.rotation.set(-swing * 0.75, 0, 0.08);
+    this.armR.rotation.set(swing * 0.75, 0, -0.08);
     return moving || this.motion > 0.01;
   }
 

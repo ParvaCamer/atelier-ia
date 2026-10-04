@@ -16,12 +16,14 @@ import {
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { AgentView, Agent } from "../ipc";
 import { APPROVAL_COLOR, ARCHETYPE_COLOR, PULSING, STATUS_COLOR, THINKING_COLOR, stationFor, type StationKind } from "./palette";
-import { parts, shadowTexture } from "./parts";
+import { HEAD_TOP, HIP_Y, SHOULDER_X, SHOULDER_Y, parts, shadowTexture } from "./parts";
 import { AGENT_RADIUS, targetFor, type Spot, type ZoneLayout } from "./layout";
 import { clampTo, nextWaypoint, pushOut } from "./nav";
 
-/** Teinte des pièces de contraste (col, face avant). */
-const DARK = new Color("#0b1119");
+/** Teintes fixes du pionnier : ceinture et col sombres, casque clair, sac métal. */
+const DARK = new Color("#262c34");
+const HELMET = new Color("#dfe4ea");
+const PACK = new Color("#7f8893");
 const HIDDEN = new Color(0, 0, 0);
 
 const WALK_SPEED = 2.4;
@@ -71,11 +73,13 @@ export class AgentLayer {
   /** Personnage de l'utilisateur en mode « à pied » : les agents s'écartent. */
   private visitor: Vector3 | null = null;
 
-  private readonly base: InstancedMesh;
-  private readonly body: InstancedMesh;
-  private readonly head: InstancedMesh;
-  private readonly neck: InstancedMesh;
+  private readonly legs: InstancedMesh;
+  private readonly torso: InstancedMesh;
+  private readonly trim: InstancedMesh;
+  private readonly pack: InstancedMesh;
+  private readonly helmet: InstancedMesh;
   private readonly visor: InstancedMesh;
+  private readonly lamp: InstancedMesh;
   private readonly arms: InstancedMesh;
   private readonly shadows: InstancedMesh;
   private readonly hits: InstancedMesh;
@@ -88,11 +92,13 @@ export class AgentLayer {
     // retomber l'attribut à zéro dans le shader — tout devient noir.
     const solid = () => new MeshLambertMaterial({});
 
-    this.base = new InstancedMesh(parts.base, solid(), capacity);
-    this.body = new InstancedMesh(parts.body, solid(), capacity);
-    this.head = new InstancedMesh(parts.head, solid(), capacity);
-    this.neck = new InstancedMesh(parts.neck, solid(), capacity);
+    this.legs = new InstancedMesh(parts.leg, solid(), capacity * 2);
+    this.torso = new InstancedMesh(parts.torso, solid(), capacity);
+    this.trim = new InstancedMesh(parts.trim, solid(), capacity);
+    this.pack = new InstancedMesh(parts.pack, solid(), capacity);
+    this.helmet = new InstancedMesh(parts.helmet, solid(), capacity);
     this.visor = new InstancedMesh(parts.visor, new MeshBasicMaterial({}), capacity);
+    this.lamp = new InstancedMesh(parts.lamp, new MeshBasicMaterial({}), capacity);
     this.arms = new InstancedMesh(parts.arm, solid(), capacity * 2);
     this.shadows = new InstancedMesh(
       parts.shadow,
@@ -130,7 +136,7 @@ export class AgentLayer {
   }
 
   private meshes(): InstancedMesh[] {
-    return [this.base, this.body, this.head, this.neck, this.visor, this.arms, this.shadows, this.hits, this.halos, this.bangs];
+    return [this.legs, this.torso, this.trim, this.pack, this.helmet, this.visor, this.lamp, this.arms, this.shadows, this.hits, this.halos, this.bangs];
   }
 
   /**
@@ -196,7 +202,7 @@ export class AgentLayer {
 
     const n = this.nodes.size;
     for (const m of this.meshes()) m.count = n;
-    this.arms.count = n * 2;
+    this.arms.count = this.legs.count = n * 2;
   }
 
   private reindex() {
@@ -342,7 +348,7 @@ export class AgentLayer {
     const hop = celebrating ? Math.abs(Math.sin(k * Math.PI * 2)) * 0.35 * (1 - k) : 0;
     const spin = celebrating ? k * Math.PI * 2 : 0;
 
-    const bob = walking ? Math.sin(node.walkPhase * 2) * 0.045 * node.motion : 0;
+    const bob = walking ? Math.abs(Math.sin(node.walkPhase)) * 0.04 * node.motion : 0;
     // Respiration : à peine perceptible, mais un monde totalement figé
     // paraît cassé.
     const breathe = working ? Math.sin(time * 3) * 0.012 : Math.sin(time * 1.3) * 0.006;
@@ -359,18 +365,19 @@ export class AgentLayer {
       if (color) mesh.setColorAt(slot, color);
     };
 
-    // Corps = métier, tête = état. Deux informations, deux surfaces,
-    // toutes deux lisibles quel que soit l'angle de la caméra.
-    place(this.base, i, 0, node.bodyColor.clone().multiplyScalar(0.4));
-    place(this.body, i, 0, node.bodyColor);
-    place(this.neck, i, 0, DARK);
-    place(this.head, i, 0, node.statusColor.clone().multiplyScalar(pulse));
-    place(this.visor, i, 0, DARK);
+    // Combinaison = métier ; visière, lampe du casque et ombre = état.
+    place(this.torso, i, 0, node.bodyColor);
+    place(this.trim, i, 0, DARK);
+    place(this.pack, i, 0, PACK);
+    place(this.helmet, i, 0, HELMET);
+    const state = node.statusColor.clone().multiplyScalar(pulse);
+    place(this.visor, i, 0, state);
+    place(this.lamp, i, 0, state);
     place(this.hits, i);
 
     // Halo de réflexion : un anneau qui respire au-dessus de la tête,
     // l'agent reste immobile à son poste pendant que le modèle travaille.
-    dummy.position.set(node.pos.x, 1.62 + y + Math.sin(time * 2.4) * 0.04, node.pos.z);
+    dummy.position.set(node.pos.x, HEAD_TOP + 0.2 + y + Math.sin(time * 2.4) * 0.04, node.pos.z);
     dummy.rotation.set(0, time * 0.8, 0);
     dummy.scale.setScalar(thinking ? 1 + Math.sin(time * 3.2) * 0.12 : 0.0001);
     dummy.updateMatrix();
@@ -379,7 +386,7 @@ export class AgentLayer {
 
     // « ! » au-dessus de l'agent qui attend une validation.
     const asking = status === "needs-approval";
-    dummy.position.set(node.pos.x, 1.75 + y + (asking ? Math.abs(Math.sin(time * 3)) * 0.12 : 0), node.pos.z);
+    dummy.position.set(node.pos.x, HEAD_TOP + 0.3 + y + (asking ? Math.abs(Math.sin(time * 3)) * 0.12 : 0), node.pos.z);
     dummy.rotation.set(0, this.towardCamera(node), 0);
     dummy.scale.setScalar(asking ? 1 : 0.0001);
     dummy.updateMatrix();
@@ -395,33 +402,42 @@ export class AgentLayer {
     this.shadows.setMatrixAt(i, dummy.matrix);
     this.shadows.setColorAt(i, node.statusColor);
 
-    this.writeArms(node, i, time, walking, working, y, heading, celebrating);
+    this.writeLimbs(node, i, time, walking, working, y, heading, celebrating);
     return walking || celebrating || asking || thinking || PULSING.has(status) || (working && node.view.activity === "shell");
   }
 
-  private writeArms(node: Node, i: number, time: number, walking: boolean, working: boolean, y: number, heading: number, celebrating: boolean) {
+  private writeLimbs(node: Node, i: number, time: number, walking: boolean, working: boolean, y: number, heading: number, celebrating: boolean) {
     const { dummy } = this;
-    const swing = walking ? Math.sin(node.walkPhase) * 0.7 * node.motion : 0;
+    const stride = walking ? Math.sin(node.walkPhase) * node.motion : 0;
     // Frappe au clavier : les deux bras avancent et vibrent en opposition.
     const typing = working && node.view.activity === "shell" ? 0.9 : 0;
-    const raised = node.view.status === "needs-approval" ? -2.2 : 0;
+    const raised = node.view.status === "needs-approval" ? -2.6 : 0;
+    const cos = Math.cos(heading);
+    const sin = Math.sin(heading);
+    const at = (lateral: number, height: number) =>
+      dummy.position.set(node.pos.x + lateral * cos, height, node.pos.z - lateral * sin);
 
     for (const side of [0, 1]) {
       const sign = side === 0 ? 1 : -1;
-      const shoulderX = 0.37 * sign;
-      let pitch = swing * sign;
+
+      // Jambes : balancier depuis la hanche, en opposition.
+      at(0.12 * sign, HIP_Y + y);
+      dummy.rotation.set(stride * 0.65 * sign, heading, 0, "YXZ");
+      dummy.scale.setScalar(1);
+      dummy.updateMatrix();
+      this.legs.setMatrixAt(i * 2 + side, dummy.matrix);
+      this.legs.setColorAt(i * 2 + side, node.bodyColor.clone().multiplyScalar(0.8));
+
+      // Bras : en opposition avec la jambe du même côté.
+      let pitch = -stride * 0.7 * sign;
       if (typing) pitch = -1.15 + Math.sin(time * 14 + side * 1.7) * 0.13;
       // Un seul bras se lève pour demander une validation : plus lisible
       // qu'une posture symétrique, qui ressemblerait à un étirement.
       if (raised && side === 0) pitch = raised;
       // Les deux bras en l'air pour fêter une tâche terminée.
-      if (celebrating) pitch = -2.6;
-
-      const cos = Math.cos(heading);
-      const sin = Math.sin(heading);
-      dummy.position.set(node.pos.x + shoulderX * cos, 0.92 + y, node.pos.z - shoulderX * sin);
+      if (celebrating) pitch = -2.7;
+      at(SHOULDER_X * sign, SHOULDER_Y + y);
       dummy.rotation.set(pitch, heading, sign * 0.08, "YXZ");
-      dummy.scale.setScalar(1);
       dummy.updateMatrix();
       this.arms.setMatrixAt(i * 2 + side, dummy.matrix);
       this.arms.setColorAt(i * 2 + side, node.bodyColor);
@@ -439,7 +455,7 @@ export class AgentLayer {
   positionOf(id: string, out: Vector3): boolean {
     const node = this.nodes.get(id);
     if (!node) return false;
-    out.set(node.pos.x, 1.55, node.pos.z);
+    out.set(node.pos.x, HEAD_TOP + 0.1, node.pos.z);
     return true;
   }
 

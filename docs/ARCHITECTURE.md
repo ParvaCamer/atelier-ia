@@ -395,7 +395,7 @@ Budget de performance visé, machine cible = laptop perso :
 
 | Métrique | Budget |
 |---|---|
-| Draw calls | **< 80** |
+| Draw calls | **< 80** (≈ 77 avec l'usine et 16 agents : la marge est mince) |
 | Triangles | **< 150 k** |
 | Lumières dynamiques | **1** directionnelle + 1 hémisphérique |
 | Shadow maps | **0** au MVP (blob shadows en decal) |
@@ -417,6 +417,21 @@ Techniques :
   client. L'IPC reste plat quel que soit le nombre d'agents.
 - **Boucle suspendue** quand la fenêtre est cachée ou qu'aucun agent ne bouge
   (mode idle → 10 fps).
+
+**Direction artistique (lot 11) : une usine façon Satisfactory.** Chaque
+zone est une dalle de fondations quadrillée ; chaque poste est une machine
+choisie selon le métier (`machines.ts` : constructeur pour dev/design,
+assembleur pour backend/ops, portique de contrôle pour QA/lead, antenne
+pour marketing/assistant) dont la pièce mobile s'anime et le panneau
+s'allume quand son opérateur y travaille. Les agents sont des pionniers en
+combinaison (couleur = métier ; visière, lampe du casque et ombre = état).
+Le travail circule sur des convoyeurs suspendus tracés d'après les arêtes
+du DAG des runs actifs (`ConveyorLayer.ts`) ; un relais est une caisse qui
+file d'une machine à l'autre. Ciel, soleil, brouillard et éclairage
+suivent l'heure locale (`environment.ts`) ; la nuit, projecteurs et halos
+au sol s'allument. Terrain extraterrestre, roches, flore et falaises au
+loin. `__world.setClock(22)` (harnais) impose une heure pour juger un
+éclairage. Environ 77 draw calls et 66 k triangles avec 16 agents.
 
 Pipeline de traduction état → visuel (`src/world/palette.ts` pour la
 destination, `AgentLayer.ts` pour le mouvement) :

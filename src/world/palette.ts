@@ -9,10 +9,11 @@ import { Color } from "three";
 import type { Activity, AgentStatus, Archetype } from "../ipc";
 
 export const GROUND = new Color("#05070b");
-export const PLATFORM = new Color("#1b2432");
-export const PROP = new Color("#3d4b5f");
-export const PROP_DARK = new Color("#26313f");
-export const GRID = new Color("#131c28");
+/** Fondations : béton métallisé clair, joints sombres, comme les dalles du jeu. */
+export const PLATFORM = new Color("#7b838d");
+export const SEAM = new Color("#4c535c");
+export const PROP = new Color("#9aa3ad");
+export const PROP_DARK = new Color("#3d434b");
 
 /** Couleur de carrosserie : distingue les métiers. */
 export const ARCHETYPE_COLOR: Record<Archetype, string> = {

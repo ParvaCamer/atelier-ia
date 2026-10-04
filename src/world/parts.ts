@@ -6,90 +6,74 @@
  * aucune texture en mémoire, style low-poly assumé et cohérent.
  */
 import {
-  BoxGeometry, CanvasTexture, CircleGeometry, CylinderGeometry, SRGBColorSpace,
+  BoxGeometry, CanvasTexture, CircleGeometry, CylinderGeometry, IcosahedronGeometry, SRGBColorSpace,
 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
-/** Pièces d'un agent. Le repère local a les pieds en y = 0. */
+const box = (w: number, h: number, d: number, x: number, y: number, z: number) => {
+  const g = new BoxGeometry(w, h, d);
+  g.translate(x, y, z);
+  return g;
+};
+
+/**
+ * Pionnier en combinaison, comme le personnage du jeu. Repère local :
+ * pieds en y = 0, regard vers +z. La combinaison porte le métier ; la
+ * visière, la lampe du casque et l'ombre portent l'état — la lampe reste
+ * visible de dessus, l'angle de vue le plus courant.
+ */
 export const parts = {
-  base: (() => {
-    const g = new BoxGeometry(0.52, 0.2, 0.44);
-    g.translate(0, 0.1, 0);
+  /** Jambe pivotant à la hanche : l'origine est en haut de la pièce. */
+  leg: (() => {
+    const g = mergeGeometries([box(0.17, 0.5, 0.2, 0, -0.25, 0), box(0.19, 0.16, 0.28, 0, -0.58, 0.04)])!;
     return g;
   })(),
-  body: (() => {
-    const g = new BoxGeometry(0.6, 0.7, 0.44);
-    g.translate(0, 0.58, 0);
+  torso: box(0.5, 0.56, 0.32, 0, 0.96, 0),
+  /** Ceinture, col et genouillères sombres : creusent la silhouette. */
+  trim: mergeGeometries([box(0.53, 0.09, 0.35, 0, 0.7, 0), box(0.26, 0.08, 0.26, 0, 1.27, 0)])!,
+  /** Sac à dos d'équipement. */
+  pack: mergeGeometries([box(0.4, 0.46, 0.18, 0, 1.0, -0.25), box(0.12, 0.2, 0.12, 0.12, 1.3, -0.27)])!,
+  helmet: (() => {
+    const g = new IcosahedronGeometry(0.25, 1);
+    g.scale(1, 0.95, 1.02);
+    g.translate(0, 1.5, 0);
     return g;
   })(),
-  /**
-   * Tête : elle porte la **couleur d'état**, pas le corps.
-   * Une visière frontale ne se voit que de face ; dans une vue de gestion
-   * où la caméra tourne librement, l'information d'état doit être lisible
-   * sous n'importe quel angle. La tête entière l'est.
-   */
-  head: (() => {
-    const g = new BoxGeometry(0.44, 0.38, 0.42);
-    g.translate(0, 1.19, 0);
-    return g;
-  })(),
-  /** Col sombre : creuse la silhouette entre tête et torse. */
-  neck: (() => {
-    const g = new BoxGeometry(0.22, 0.1, 0.22);
-    g.translate(0, 0.98, 0);
-    return g;
-  })(),
-  /** Face avant sombre : évite que la tête ne soit un simple cube. */
-  visor: (() => {
-    const g = new BoxGeometry(0.32, 0.13, 0.04);
-    g.translate(0, 1.19, 0.21);
-    return g;
-  })(),
+  /** Visière : la partie émissive, à la couleur de l'état. */
+  visor: box(0.34, 0.17, 0.1, 0, 1.51, 0.19),
+  /** Lampe sur le casque, à la couleur de l'état : lisible de dessus. */
+  lamp: box(0.12, 0.08, 0.12, 0, 1.76, 0),
   /** Bras pivotant à l'épaule : l'origine est en haut de la pièce. */
-  arm: (() => {
-    const g = new BoxGeometry(0.13, 0.46, 0.15);
-    g.translate(0, -0.23, 0);
-    return g;
-  })(),
+  arm: box(0.12, 0.5, 0.13, 0, -0.25, 0),
   /** Boîte de sélection, invisible mais cliquable. */
-  hitbox: (() => {
-    const g = new BoxGeometry(0.8, 1.4, 0.8);
-    g.translate(0, 0.7, 0);
-    return g;
-  })(),
+  hitbox: box(0.8, 1.85, 0.8, 0, 0.92, 0),
   shadow: new CircleGeometry(0.45, 12),
 };
 
+/** Hauteurs utiles du pionnier. */
+export const HIP_Y = 0.66;
+export const SHOULDER_Y = 1.2;
+export const SHOULDER_X = 0.32;
+export const HEAD_TOP = 1.8;
+
 export const props = {
-  deskTop: (() => {
-    const g = new BoxGeometry(1.9, 0.09, 0.9);
-    g.translate(0, 0.72, 0);
-    return g;
-  })(),
-  deskLeg: (() => {
-    const g = new BoxGeometry(1.7, 0.68, 0.7);
-    g.translate(0, 0.34, 0);
-    return g;
-  })(),
-  monitor: (() => {
-    const g = new BoxGeometry(1.0, 0.58, 0.06);
-    g.translate(0, 1.1, -0.24);
-    return g;
-  })(),
-  /** Face avant de l'écran, éclairée quand le poste est occupé. */
-  screen: (() => {
-    const g = new BoxGeometry(0.9, 0.48, 0.02);
-    g.translate(0, 1.1, -0.19);
-    return g;
-  })(),
+  /** Tour de relais (réseau, git) : treillis métallique et balise. */
   rack: (() => {
-    const g = new BoxGeometry(1.2, 2.0, 0.9);
-    g.translate(0, 1.0, 0);
-    return g;
+    const leg = (x: number, z: number) => { const g = new BoxGeometry(0.1, 4.2, 0.1); g.translate(x, 2.1, z); return g; };
+    const brace = (y: number) => [
+      (() => { const g = new BoxGeometry(1.1, 0.06, 0.06); g.translate(0, y, 0.5); return g; })(),
+      (() => { const g = new BoxGeometry(1.1, 0.06, 0.06); g.translate(0, y, -0.5); return g; })(),
+      (() => { const g = new BoxGeometry(0.06, 0.06, 1.1); g.translate(0.5, y, 0); return g; })(),
+      (() => { const g = new BoxGeometry(0.06, 0.06, 1.1); g.translate(-0.5, y, 0); return g; })(),
+    ];
+    const top = new BoxGeometry(1.2, 0.12, 1.2);
+    top.translate(0, 4.25, 0);
+    return mergeGeometries([leg(0.5, 0.5), leg(-0.5, 0.5), leg(0.5, -0.5), leg(-0.5, -0.5), ...[0.8, 1.9, 3.0].flatMap(brace), top])!;
   })(),
+  /** Balise au sommet de la tour, à la couleur du projet. */
   rackLight: (() => {
-    const g = new BoxGeometry(0.9, 0.05, 0.02);
-    g.translate(0, 1.0, 0.46);
+    const g = new BoxGeometry(0.3, 0.3, 0.3);
+    g.translate(0, 4.5, 0);
     return g;
   })(),
   bench: (() => {
@@ -129,6 +113,23 @@ export function shadowTexture(): CanvasTexture {
   grad.addColorStop(0, "rgba(0,0,0,0.55)");
   grad.addColorStop(0.6, "rgba(0,0,0,0.22)");
   grad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new CanvasTexture(canvas);
+  tex.colorSpace = SRGBColorSpace;
+  return tex;
+}
+
+/** Halo lumineux : blanc au centre, transparent au bord (mélange additif). */
+export function glowTexture(): CanvasTexture {
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, "rgba(255,255,255,0.9)");
+  grad.addColorStop(0.5, "rgba(255,255,255,0.35)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
   const tex = new CanvasTexture(canvas);

@@ -11,6 +11,7 @@ import { Vector3 } from "three";
 import type { Agent, Project } from "../ipc";
 import type { StationKind } from "./palette";
 import type { Box } from "./nav";
+import { FAMILY, MACHINE_SIZE, type MachineFamily } from "./machines";
 
 export interface Slot {
   /** Position de repos, devant le poste. */
@@ -44,7 +45,8 @@ export interface ZoneLayout {
   cabinet: Vector3;
   bench: Vector3;
   slots: Map<string, Slot>;
-  deskTransforms: { position: Vector3; rotation: number }[];
+  /** Une machine par agent : c'est son poste de travail. */
+  machines: { agentId: string; family: MachineFamily; position: Vector3 }[];
   furniture: Furniture[];
   /** Emprise au sol du mobilier, gonflée de la carrure d'un agent. */
   obstacles: Box[];
@@ -77,7 +79,7 @@ export function buildLayout(projects: Project[], agents: Agent[]): Map<string, Z
     const originZ = z - ((rows - 1) * SLOT_D) / 2 - depth * 0.08;
 
     const slots = new Map<string, Slot>();
-    const deskTransforms: ZoneLayout["deskTransforms"] = [];
+    const machines: ZoneLayout["machines"] = [];
     const obstacles: Box[] = [];
 
     mine.forEach((agent, i) => {
@@ -86,19 +88,20 @@ export function buildLayout(projects: Project[], agents: Agent[]): Map<string, Z
       const cx = originX + col * SLOT_W;
       const cz = originZ + row * SLOT_D;
 
-      const desk = new Vector3(cx, 0, cz - 1.35);
+      // La machine est en retrait, l'opérateur devant son panneau.
+      const machine = new Vector3(cx, 0, cz - 1.65);
       slots.set(agent.id, {
-        desk: new Vector3(cx, 0, cz - 0.55),
-        home: new Vector3(cx, 0, cz + 1.1),
+        desk: new Vector3(cx, 0, cz - 0.3),
+        home: new Vector3(cx, 0, cz + 1.2),
       });
-      deskTransforms.push({ position: desk, rotation: 0 });
-      obstacles.push(box(desk.x, desk.z, 1.9, 0.9));
+      machines.push({ agentId: agent.id, family: FAMILY[agent.archetype], position: machine });
+      obstacles.push(box(machine.x, machine.z, MACHINE_SIZE[0], MACHINE_SIZE[1]));
     });
 
     const rack = new Vector3(x - width / 2 + 2.2, 0, z + depth / 2 - 3.2);
     const cabinet = new Vector3(x + width / 2 - 2.4, 0, z - depth / 2 + 2.4);
     const bench = new Vector3(x + width / 2 - 2.6, 0, z + depth / 2 - 3.0);
-    obstacles.push(box(rack.x, rack.z, 1.2, 0.9), box(cabinet.x, cabinet.z, 1.6, 0.6), box(bench.x, bench.z, 2.6, 0.7));
+    obstacles.push(box(rack.x, rack.z, 1.2, 1.2), box(cabinet.x, cabinet.z, 1.6, 0.6), box(bench.x, bench.z, 2.6, 0.7));
     const furniture = furnish(x, z, width, depth);
     for (const f of furniture) {
       const size = FOOTPRINT[f.kind];
@@ -114,7 +117,7 @@ export function buildLayout(projects: Project[], agents: Agent[]): Map<string, Z
       cabinet,
       bench,
       slots,
-      deskTransforms,
+      machines,
       furniture,
       obstacles,
       bounds: box(x, z, width, depth, -0.6),
@@ -167,10 +170,10 @@ export function targetFor(zone: ZoneLayout, agentId: string, station: StationKin
   const slot = zone.slots.get(agentId);
   if (!slot) return { pos: zone.center, facing: 0 };
   switch (station) {
-    // Au poste, face à l'écran (le bureau est vers −z).
+    // Au poste, face au panneau de sa machine (vers −z).
     case "desk": return { pos: slot.desk, facing: Math.PI };
-    // La baie s'ouvre vers +z : on se tient devant, tourné vers elle.
-    case "rack": return { pos: new Vector3(zone.rack.x + (seat % 2) * 0.7 - 0.35, 0, zone.rack.z + 1.05), facing: Math.PI };
+    // Au pied de la tour de relais, tourné vers elle.
+    case "rack": return { pos: new Vector3(zone.rack.x + (seat % 2) * 0.7 - 0.35, 0, zone.rack.z + 1.2), facing: Math.PI };
     // L'armoire s'ouvre vers +z, elle aussi.
     case "cabinet": return { pos: new Vector3(zone.cabinet.x + (seat % 2) * 0.7 - 0.35, 0, zone.cabinet.z + 0.95), facing: Math.PI };
     // Devant le banc, côté allée, un emplacement par agent qui attend.
