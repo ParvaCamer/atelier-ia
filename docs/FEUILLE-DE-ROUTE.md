@@ -47,7 +47,7 @@ de validation.
 
 - Le moteur expose déjà `WorldSnapshot` et `RunView` : réutiliser, ne pas
   créer un second chemin de données.
-- Le graphe est rendu par `src/ui/workflow/WorldGraph.tsx` (lecture seule
+- Le graphe est rendu par `src/ui/workflow/WorkflowGraph.tsx` (lecture seule
   dans ce mode : pas d'édition pendant une exécution).
 - Accès par l'historique (`src/ui/history/History.tsx`) et par le clic sur
   un run en cours.
