@@ -107,6 +107,9 @@ pub fn run() {
             commands::phase4::delete_schedule,
             commands::phase4::preview_schedule,
             commands::phase4::run_schedule_now,
+            commands::phase4::list_watches,
+            commands::phase4::save_watch,
+            commands::phase4::delete_watch,
         ])
         .run(tauri::generate_context!())
         .expect("démarrage de l'application impossible");

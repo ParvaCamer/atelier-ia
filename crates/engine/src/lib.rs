@@ -14,6 +14,7 @@ pub mod memory;
 pub mod orchestrator;
 pub mod schedules;
 pub mod scheduler;
+pub mod watches;
 pub mod world;
 
 pub use gate::CallError;
@@ -48,8 +49,9 @@ pub struct EngineConfig {
     pub env: Option<ShellEnv>,
     /// `None` → construit depuis les fournisseurs et routes en base.
     pub providers: Option<ProviderRegistry>,
-    /// Passage automatique des planifications. Désactivé dans les tests, qui
-    /// appellent `fire_due` avec une horloge contrôlée.
+    /// Passage automatique des planifications et des surveillances de
+    /// fichiers. Désactivé dans les tests, qui appellent `fire_due` et
+    /// `poll_watches` avec une horloge contrôlée.
     pub run_schedules: bool,
 }
 
@@ -85,6 +87,8 @@ pub struct Engine {
     pub(crate) running: Mutex<HashMap<TaskId, Running>>,
     pub(crate) waker: Notify,
     pub(crate) schedule_lock: Mutex<()>,
+    /// État de scrutation des surveillances de fichiers (relevés, rafales).
+    pub(crate) watch_state: Mutex<HashMap<WatchId, watches::WatchState>>,
 }
 
 impl Engine {
@@ -118,6 +122,7 @@ impl Engine {
             running: Mutex::new(HashMap::new()),
             waker: Notify::new(),
             schedule_lock: Mutex::new(()),
+            watch_state: Mutex::new(HashMap::new()),
         });
 
         engine.hydrate().await?;
@@ -126,6 +131,7 @@ impl Engine {
         engine.clone().spawn_scheduler();
         if engine.config.run_schedules {
             engine.clone().spawn_schedule_ticker();
+            engine.clone().spawn_watch_ticker();
         }
         Ok(engine)
     }

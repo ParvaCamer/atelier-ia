@@ -54,3 +54,18 @@ pub fn preview_schedule(state: State<'_, AppState>, cron: String) -> CmdResult<V
 pub async fn run_schedule_now(state: State<'_, AppState>, schedule_id: ScheduleId) -> CmdResult<RunId> {
     state.engine.run_schedule_now(&schedule_id).await.map_err(err)
 }
+
+#[tauri::command]
+pub async fn list_watches(state: State<'_, AppState>) -> CmdResult<Vec<FileWatch>> {
+    state.engine.list_watches().await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn save_watch(state: State<'_, AppState>, watch: FileWatch) -> CmdResult<FileWatch> {
+    state.engine.save_watch(watch).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn delete_watch(state: State<'_, AppState>, watch_id: WatchId) -> CmdResult<()> {
+    state.engine.delete_watch(&watch_id).await.map_err(err)
+}

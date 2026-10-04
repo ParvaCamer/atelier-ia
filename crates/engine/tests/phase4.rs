@@ -366,3 +366,129 @@ async fn planification_desactivee_ou_orpheline() {
     w.engine.delete_workflow(&wf).await.unwrap();
     assert!(w.engine.list_schedules().await.unwrap().is_empty());
 }
+
+// ================================================================ surveillance de fichiers
+
+fn watch(workflow_id: WorkflowId, patterns: &[&str], debounce_secs: u32) -> FileWatch {
+    FileWatch {
+        id: WatchId(String::new()), name: "Sur modification".into(), workflow_id,
+        patterns: patterns.iter().map(|p| p.to_string()).collect(), debounce_secs, enabled: true,
+        last_run_at: None, last_run_id: None, last_outcome: None, last_error: None, last_trigger: None, created_at: Utc::now(),
+    }
+}
+
+async fn project_root(w: &World) -> std::path::PathBuf {
+    repo::projects::get(w.engine.db(), &w.project).await.unwrap().root_path.unwrap().into()
+}
+
+fn write(root: &std::path::Path, rel: &str, content: &str) {
+    let path = root.join(rel);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, content).unwrap();
+}
+
+async fn run_count(w: &World) -> usize {
+    w.engine.list_runs(RunFilter { limit: 50, ..Default::default() }).await.unwrap().len()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rafale_d_ecritures_un_seul_lancement() {
+    let w = world(vec![], false).await;
+    let root = project_root(&w).await;
+    write(&root, "src/existant.kt", "avant");
+    let wf = workflow(&w, &["echo reaction"]).await;
+    let saved = w.engine.save_watch(watch(wf, &[" ./src/**/*.kt ", "src/**/*.kt"], 5)).await.unwrap();
+    assert_eq!(saved.patterns, vec!["src/**/*.kt"], "motifs nettoyés et dédoublonnés");
+
+    let t0 = Utc::now();
+    let at = |s: i64| t0 + Chrono::seconds(s);
+    assert!(w.engine.poll_watches(at(0)).await.unwrap().is_empty(), "le relevé initial ne déclenche rien");
+
+    // Rafale : cinq fichiers créés, un modifié, deux fois de suite.
+    for f in ["a", "b", "c", "d"] {
+        write(&root, &format!("src/{f}.kt"), "v1");
+    }
+    write(&root, "src/existant.kt", "après, plus long");
+    assert!(w.engine.poll_watches(at(1)).await.unwrap().is_empty(), "rafale en cours : on attend");
+    write(&root, "src/a.kt", "v2 un peu plus longue");
+    assert!(w.engine.poll_watches(at(3)).await.unwrap().is_empty());
+    assert!(w.engine.poll_watches(at(7)).await.unwrap().is_empty(), "4 s de calme seulement depuis la dernière écriture");
+    assert_eq!(run_count(&w).await, 0);
+
+    let out = w.engine.poll_watches(at(9)).await.unwrap();
+    assert_eq!(out, vec![(saved.id.clone(), ScheduleOutcome::Launched)], "une rafale = un lancement");
+    assert_eq!(run_count(&w).await, 1);
+    let after = repo::watches::get(w.engine.db(), &saved.id).await.unwrap();
+    assert_eq!(after.last_trigger.as_deref(), Some("src/a.kt (+4)"), "fichiers à l'origine consignés");
+    assert_eq!(after.last_outcome, Some(ScheduleOutcome::Launched));
+    let run = repo::runs::get(w.engine.db(), after.last_run_id.as_ref().unwrap()).await.unwrap();
+    assert!(run.request.unwrap().contains("surveillance « Sur modification »"), "l'origine du run est lisible dans l'historique");
+    wait_task(&w, &run.id, TaskStatus::Completed).await;
+
+    // Plus rien ne bouge : plus rien ne part. Un fichier hors motif non plus.
+    assert!(w.engine.poll_watches(at(20)).await.unwrap().is_empty());
+    write(&root, "notes.txt", "hors motif");
+    write(&root, "node_modules/x/y.kt", "dossier ignoré");
+    assert!(w.engine.poll_watches(at(21)).await.unwrap().is_empty());
+    assert!(w.engine.poll_watches(at(40)).await.unwrap().is_empty());
+    assert_eq!(run_count(&w).await, 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn surveillance_sans_chevauchement() {
+    let w = world(vec![], false).await;
+    let root = project_root(&w).await;
+    let wf = workflow(&w, &["sleep 5"]).await;
+    let saved = w.engine.save_watch(watch(wf, &["*.md"], 1)).await.unwrap();
+
+    let t0 = Utc::now();
+    let at = |s: i64| t0 + Chrono::seconds(s);
+    w.engine.poll_watches(at(0)).await.unwrap();
+    write(&root, "README.md", "un");
+    w.engine.poll_watches(at(1)).await.unwrap();
+    assert_eq!(w.engine.poll_watches(at(3)).await.unwrap(), vec![(saved.id.clone(), ScheduleOutcome::Launched)]);
+    let first = repo::watches::get(w.engine.db(), &saved.id).await.unwrap().last_run_id.unwrap();
+    wait_task(&w, &first, TaskStatus::Running).await;
+
+    // Nouvelle rafale pendant que le run tourne : ignorée, et consignée.
+    write(&root, "docs/notes.md", "deux");
+    w.engine.poll_watches(at(4)).await.unwrap();
+    assert_eq!(w.engine.poll_watches(at(6)).await.unwrap(), vec![(saved.id.clone(), ScheduleOutcome::Skipped)]);
+    let after = repo::watches::get(w.engine.db(), &saved.id).await.unwrap();
+    assert!(after.last_error.unwrap().contains("encore en cours"));
+    assert_eq!(after.last_run_id.as_ref(), Some(&first), "le run surveillé reste le précédent");
+    assert_eq!(run_count(&w).await, 1);
+
+    let task = repo::tasks::list_by_run(w.engine.db(), &first).await.unwrap().remove(0);
+    w.engine.control_task(&task.id, TaskControl::Stop).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn surveillance_refusee_sans_dossier_de_projet() {
+    let w = world(vec![], false).await;
+    let wf = workflow(&w, &["echo x"]).await;
+    for (patterns, needle) in [(vec![], "au moins un motif"), (vec!["../hors"], "relatif"), (vec!["/etc/*"], "relatif")] {
+        let err = w.engine.save_watch(watch(wf.clone(), &patterns, 5)).await.unwrap_err().to_string();
+        assert!(err.contains(needle), "{err}");
+    }
+    assert!(w.engine.save_watch(watch(wf.clone(), &["*"], 0)).await.unwrap_err().to_string().contains("anti-rebond"));
+
+    let bare = Project {
+        id: ProjectId::new(), name: "Sans dossier".into(), description: String::new(), root_path: None, git_remote: None,
+        color: "#fff".into(), zone: Zone::new(50.0, 50.0, 10.0, 10.0), archived: false,
+    };
+    repo::projects::upsert(w.engine.db(), &bare).await.unwrap();
+    let orphan = Workflow {
+        id: WorkflowId::new(), project_id: bare.id.clone(), name: "Flux".into(), description: String::new(),
+        steps: vec![step("s", &w.agent, &["echo x"])], trigger: Trigger::Manual, enabled: true,
+    };
+    repo::workflows::upsert(w.engine.db(), &orphan).await.unwrap();
+    let err = w.engine.save_watch(watch(orphan.id, &["*"], 5)).await.unwrap_err().to_string();
+    assert!(err.contains("Sans dossier") && err.contains("n'a pas de dossier"), "{err}");
+    assert!(w.engine.list_watches().await.unwrap().is_empty());
+
+    // Supprimer le workflow supprime ses surveillances.
+    w.engine.save_watch(watch(wf.clone(), &["*"], 5)).await.unwrap();
+    w.engine.delete_workflow(&wf).await.unwrap();
+    assert!(w.engine.list_watches().await.unwrap().is_empty());
+}

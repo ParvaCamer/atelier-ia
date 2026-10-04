@@ -3,7 +3,7 @@
  * l'éditeur ne fait que proposer des formes simples au lieu de cron brut.
  */
 import { useEffect, useState } from "react";
-import type { ProjectId, Schedule, ScheduleId, ScheduleTarget, WorkflowId } from "../../ipc";
+import type { FileWatch, ProjectId, Schedule, ScheduleId, ScheduleTarget, WatchId, WorkflowId } from "../../ipc";
 import { api } from "../../ipc";
 import { useConfig } from "../../state/config";
 import { useHistory } from "../../state/history";
@@ -45,6 +45,11 @@ const blank = (target: ScheduleTarget): Schedule => ({
   lastRunAt: null, lastRunId: null, lastOutcome: null, lastError: null, nextRunAt: null, createdAt: new Date().toISOString(),
 });
 
+const blankWatch = (workflowId: WorkflowId): FileWatch => ({
+  id: "" as WatchId, name: "", workflowId, patterns: ["src/**/*"], debounceSecs: 5, enabled: true,
+  lastRunAt: null, lastRunId: null, lastOutcome: null, lastError: null, lastTrigger: null, createdAt: new Date().toISOString(),
+});
+
 const when = (iso: string) => new Date(iso).toLocaleString("fr-FR", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
 
 export function SchedulesPanel() {
@@ -54,11 +59,14 @@ export function SchedulesPanel() {
   const [items, setItems] = useState<Schedule[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [draft, setDraft] = useState<Schedule | null>(null);
+  const [watches, setWatches] = useState<FileWatch[]>([]);
+  const [watchDraft, setWatchDraft] = useState<FileWatch | null>(null);
   const job = useJob();
 
   const load = async () => {
-    const list = await job.run(() => api.listSchedules());
+    const [list, ws] = await Promise.all([job.run(() => api.listSchedules()), job.run(() => api.listWatches())]);
     if (list) setItems(list);
+    if (ws) setWatches(ws);
     return list ?? [];
   };
 
@@ -79,10 +87,12 @@ export function SchedulesPanel() {
   }, []);
 
   useEffect(() => {
-    if (selected === "new") return;
+    if (selected === "new" || selected === "watch:new") return;
     const found = items.find((s) => s.id === selected);
     setDraft(found ? { ...found } : null);
-  }, [selected, items]);
+    const fw = watches.find((w) => `watch:${w.id}` === selected);
+    setWatchDraft(fw ? { ...fw } : null);
+  }, [selected, items, watches]);
 
   const describe = (s: Schedule) =>
     s.target.kind === "workflow"
@@ -110,9 +120,37 @@ export function SchedulesPanel() {
             <small className="list-item-sub">{describe(s)}</small>
           </button>
         ))}
+
+        <div className="list-group">Surveillances de fichiers</div>
+        <button
+          className="list-new" disabled={!workflows.length}
+          onClick={() => {
+            setSelected("watch:new");
+            setDraft(null);
+            setWatchDraft(blankWatch(workflows[0].id));
+            job.setError(null); job.setOk(null);
+          }}
+        >
+          + Nouvelle surveillance
+        </button>
+        {watches.map((w) => (
+          <button key={w.id} className="list-item column" data-active={selected === `watch:${w.id}`} data-muted={!w.enabled} onClick={() => setSelected(`watch:${w.id}`)}>
+            <span className="list-item-main">{w.name}</span>
+            <small>{w.enabled ? w.patterns.join(", ") : "désactivée"}</small>
+            <small className="list-item-sub">{workflows.find((x) => x.id === w.workflowId)?.name ?? "workflow supprimé"}</small>
+          </button>
+        ))}
       </aside>
 
-      {draft ? (
+      {watchDraft && selected?.startsWith("watch:") ? (
+        <WatchEditor
+          key={watchDraft.id || "new"}
+          draft={watchDraft}
+          onChange={setWatchDraft}
+          onSaved={async (saved) => { await load(); setSelected(`watch:${saved.id}`); }}
+          onDeleted={async () => { await load(); setSelected(null); setWatchDraft(null); }}
+        />
+      ) : draft ? (
         <ScheduleEditor
           key={draft.id || "new"}
           draft={draft}
@@ -293,6 +331,76 @@ function ScheduleEditor({ draft, onChange, projects, onSaved, onDeleted }: {
             if (done !== undefined) onDeleted();
           }} />
         )}
+        <Feedback error={job.error} ok={job.ok} />
+      </div>
+    </section>
+  );
+}
+
+const OUTCOME: Record<string, string> = { launched: "lancée", skipped: "ignorée", error: "en erreur" };
+
+function WatchEditor({ draft, onChange, onSaved, onDeleted }: {
+  draft: FileWatch;
+  onChange: (w: FileWatch) => void;
+  onSaved: (w: FileWatch) => void;
+  onDeleted: () => void;
+}) {
+  const workflows = useWorld((s) => s.workflows);
+  const projects = useWorld((s) => s.projects);
+  // Une ligne par motif : un motif peut contenir une virgule (`{a,b}` n'est pas
+  // pris en charge, mais un nom de fichier peut en avoir une).
+  const [patterns, setPatterns] = useState(draft.patterns.join("\n"));
+  const job = useJob();
+  const patch = (p: Partial<FileWatch>) => onChange({ ...draft, ...p });
+  const wf = workflows.find((w) => w.id === draft.workflowId);
+  const project = projects.find((p) => p.id === wf?.projectId);
+
+  const save = async () => {
+    const watch = { ...draft, patterns: patterns.split("\n") };
+    const saved = await job.run(() => api.saveWatch(watch), draft.id ? "Surveillance enregistrée." : "Surveillance créée : le premier passage relève l'état actuel, sans rien lancer.");
+    if (saved) onSaved(saved);
+  };
+
+  const remove = async () => {
+    const done = await job.run(() => api.deleteWatch(draft.id));
+    if (done !== undefined) onDeleted();
+  };
+
+  return (
+    <section className="split-detail">
+      <h2>{draft.id ? draft.name : "Nouvelle surveillance"}</h2>
+      <p className="note">
+        Lance un workflow quand des fichiers du dossier du projet changent. Une rafale d'écritures ne produit qu'un
+        lancement ; si l'exécution précédente tourne encore, le passage est ignoré. Ne tourne que lorsqu'Atelier est ouvert.
+      </p>
+      <div className="form">
+        <Field label="Nom"><Text value={draft.name} onChange={(name) => patch({ name })} placeholder="Tests à chaque modification" /></Field>
+        <Field label="Workflow" hint={project ? (project.rootPath ? `Dossier surveillé : ${project.rootPath}` : `Le projet ${project.name} n'a pas de dossier : la surveillance sera refusée.`) : undefined}>
+          <Select value={draft.workflowId} options={workflows.map((w) => ({ value: w.id, label: w.name }))} onChange={(workflowId) => patch({ workflowId })} />
+        </Field>
+        <Field label="Motifs de fichiers" wide hint="Un par ligne, relatifs au dossier du projet. « * » dans un dossier, « ** » à toute profondeur ; sans « / », vaut pour un nom de fichier partout. node_modules, build, .git… sont ignorés.">
+          <Area mono rows={3} value={patterns} onChange={setPatterns} placeholder={"src/**/*.kt\n*.md"} />
+        </Field>
+        <Field label="Anti-rebond (secondes)" hint="Délai sans nouvelle écriture avant de lancer.">
+          <input className="input" type="number" min={1} max={3600} value={draft.debounceSecs} onChange={(e) => patch({ debounceSecs: Number(e.target.value) })} />
+        </Field>
+        <Field label="État">
+          <Toggle checked={draft.enabled} onChange={(enabled) => patch({ enabled })} label={draft.enabled ? "Active" : "Désactivée"} />
+        </Field>
+      </div>
+
+      {draft.lastRunAt && (
+        <div className="note">
+          Dernier passage : {when(draft.lastRunAt)} — {OUTCOME[draft.lastOutcome ?? ""] ?? "—"}
+          {draft.lastTrigger && <> · déclenché par <code>{draft.lastTrigger}</code></>}
+          {draft.lastError && <> · {draft.lastError}</>}
+          {draft.lastRunId && <> · <button className="link small inline" onClick={() => useHistory.getState().show(draft.lastRunId)}>voir l'exécution</button></>}
+        </div>
+      )}
+
+      <div className="actions">
+        <button className="btn primary" disabled={job.busy} onClick={save}>{draft.id ? "Enregistrer" : "Créer la surveillance"}</button>
+        {draft.id && <DangerButton label="Supprimer" confirmLabel="Confirmer" onConfirm={remove} disabled={job.busy} />}
         <Feedback error={job.error} ok={job.ok} />
       </div>
     </section>

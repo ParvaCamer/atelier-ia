@@ -586,6 +586,17 @@ simples (chaque jour, certains jours, toutes les N heures).
 - Horloge injectable (`fire_due(now)`) : testé sans attendre un vrai lundi 9 h.
 - Supprimer un workflow supprime ses planifications (clé étrangère).
 
+## Surveillance de fichiers (implémentée)
+
+Table `file_watches` (migration 0008) : un workflow, des motifs relatifs
+au dossier du projet (`*`, `?`, `**`), un anti-rebond. Scrutation toutes
+les 2 s par empreinte (taille + date), sans dépendance ; le premier passage
+ne fait que relever l'état. Une rafale = un lancement, après
+`debounce_secs` de calme ; exécution précédente en cours ⇒ passage ignoré
+et consigné ; projet sans dossier ⇒ refusé à l'enregistrement, suspendu à
+l'exécution. Horloge injectable : `poll_watches(now)`. Le run porte
+l'origine dans sa demande (« surveillance « X » : src/a.kt (+3) »).
+
 ## Éditeur visuel de workflows (implémenté)
 
 Le workflow reste le même objet déclaratif : l'éditeur ne produit rien que

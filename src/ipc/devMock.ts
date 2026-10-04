@@ -184,6 +184,11 @@ let SCHEDULES: Record<string, any>[] = [
   { id: "s2", name: "Audit SEO", target: { kind: "request", text: "Analyse les performances SEO du site", projectId: "p2" }, cron: "30 8 * * 1-5", enabled: false, runMissed: false, lastRunAt: null, lastRunId: null, lastOutcome: null, lastError: null, nextRunAt: null, createdAt: iso(20000) },
 ];
 
+let WATCHES: Record<string, any>[] = [
+  { id: "fw1", name: "Tests à chaque modification", workflowId: "w1", patterns: ["app/src/**/*.kt"], debounceSecs: 5, enabled: true,
+    lastRunAt: iso(30), lastRunId: "r2", lastOutcome: "launched", lastError: null, lastTrigger: "app/src/main/ContactScreen.kt (+2)", createdAt: iso(9000) },
+];
+
 export function installDevMock() {
   let tick = 0;
   // Le snapshot est poussé comme le ferait le moteur : l'exécution simulée avance.
@@ -266,6 +271,16 @@ export function installDevMock() {
         if (String(args.cron).trim().split(/\s+/).length !== 5) throw "5 champs attendus : minute heure jour-du-mois mois jour-de-semaine";
         return [1, 2, 3].map((d) => new Date(Date.now() + d * 86_400_000).toISOString());
       case "run_schedule_now": return "r-mock";
+      case "list_watches": return WATCHES;
+      case "save_watch": {
+        const patterns = (args.watch.patterns as string[]).map((p) => p.trim()).filter(Boolean);
+        if (!patterns.length) throw "indique au moins un motif de fichiers, par exemple « src/**/*.kt » ou « *.md »";
+        if (patterns.some((p) => p.startsWith("/") || p.split("/").includes(".."))) throw `motif « ${patterns.find((p) => p.startsWith("/") || p.split("/").includes(".."))} » : indique un chemin relatif au dossier du projet, par exemple « src/**/*.kt »`;
+        const fw = { ...args.watch, patterns, id: args.watch.id || `fw${Date.now()}` };
+        WATCHES = WATCHES.filter((x) => x.id !== fw.id).concat(fw);
+        return fw;
+      }
+      case "delete_watch": WATCHES = WATCHES.filter((x) => x.id !== args.watchId); return null;
       case "list_all_projects": return PROJECTS;
       case "save_project": {
         const p = { ...args.project, id: args.project.id || `p${Date.now()}` };

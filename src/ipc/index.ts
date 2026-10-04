@@ -12,7 +12,7 @@ import type {
   Project, ProjectId, ProviderConfig, ProviderHealth, PtyId, RouteTest, Run, RunId, Task,
   TaskControl, TaskId, ToolInfo, Workflow, WorkflowId, WorldSnapshot,
   MemoryEntry, MemoryFilter, MemoryId, MemoryView, RunDetail, RunFilter, RunSummary,
-  Schedule, ScheduleId, WorkflowCheck,
+  Schedule, ScheduleId, WorkflowCheck, FileWatch, WatchId,
 } from "./generated";
 
 export type GrantPresetName = "none" | "read-only" | "developer";
@@ -107,6 +107,11 @@ export const api = {
   deleteSchedule: (scheduleId: ScheduleId) => invoke<void>("delete_schedule", { scheduleId }),
   previewSchedule: (cron: string) => invoke<string[]>("preview_schedule", { cron }),
   runScheduleNow: (scheduleId: ScheduleId) => invoke<RunId>("run_schedule_now", { scheduleId }),
+
+  // --- surveillances de fichiers ---
+  listWatches: () => invoke<FileWatch[]>("list_watches"),
+  saveWatch: (watch: FileWatch) => invoke<FileWatch>("save_watch", { watch }),
+  deleteWatch: (watchId: WatchId) => invoke<void>("delete_watch", { watchId }),
 };
 
 /** Noms d'événements — dupliqués dans src-tauri/src/events.rs. */

@@ -26,7 +26,7 @@ pub use ids::*;
 pub use log::{LogLine, LogStream};
 pub use history::{Handoff, RunDetail, RunFilter, RunSummary, TaskDetail, ToolCallRecord};
 pub use memory::{MemoryEntry, MemoryFilter, MemoryKind, MemoryScope, MemoryView};
-pub use schedule::{Schedule, ScheduleOutcome, ScheduleTarget};
+pub use schedule::{FileWatch, Schedule, ScheduleOutcome, ScheduleTarget};
 pub use permission::{Decision, Grant, Mode, ResourceScope};
 pub use project::{Project, Zone};
 pub use snapshot::{AgentView, RunStepView, RunView, TaskBrief, WorldSnapshot};
