@@ -37,6 +37,7 @@ export type { RunDetail } from "./RunDetail";
 export type { RunFilter } from "./RunFilter";
 export type { RunId } from "./RunId";
 export type { RunStatus } from "./RunStatus";
+export type { RunStepView } from "./RunStepView";
 export type { RunSummary } from "./RunSummary";
 export type { RunView } from "./RunView";
 export type { Schedule } from "./Schedule";

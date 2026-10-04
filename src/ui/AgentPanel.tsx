@@ -5,6 +5,7 @@
  * une cible mobile est le pire endroit possible pour un bouton.
  */
 import { useConfig } from "../state/config";
+import { useHistory } from "../state/history";
 import { useWorld } from "../state/store";
 import { elapsed, StatusPill, useNow } from "./bits";
 
@@ -54,7 +55,10 @@ export function AgentPanel() {
           <dt>Outils</dt><dd>{agent.tools.length ? agent.tools.join(", ") : "aucun"}</dd>
           {task && (
             <>
-              <dt>Workflow</dt><dd title={task.runTitle}>{task.runTitle}</dd>
+              <dt>Workflow</dt>
+              <dd title={`${task.runTitle} — voir le déroulement en direct`}>
+                <button className="link" onClick={() => useHistory.getState().show(task.runId)}>{task.runTitle}</button>
+              </dd>
               <dt>Tâche</dt><dd title={task.title}>{task.title}</dd>
               <dt>Écoulé</dt><dd>{elapsed(task.startedAt, now)}</dd>
               {task.nextTitle && (<><dt>Ensuite</dt><dd>{task.nextTitle}</dd></>)}

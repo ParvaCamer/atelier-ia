@@ -600,6 +600,17 @@ le moteur ne connaissait déjà.
 - La clé d'étape suit le titre tant qu'elle n'a pas été choisie ; la renommer
   met à jour les dépendances qui la citent.
 
+## Suivi d'exécution en direct (implémenté)
+
+`RunView` porte l'état de chaque étape (`RunStepView` : tâche, agent,
+état, dépendances). C'est le snapshot à 8 Hz qui l'apporte : aucune
+commande supplémentaire. Le graphe est celui de l'éditeur
+(`WorkflowGraph`) en lecture seule, construit depuis les **tâches** du run
+— un plan improvisé par l'orchestrateur n'a pas de workflow enregistré.
+`waiting` = attente d'une validation humaine ; une étape qui attend ses
+dépendances reste `queued`. Accès : Historique, compteur « workflows » de
+l'en-tête, ligne « Workflow » du panneau d'agent.
+
 ---
 
 ## K. Roadmap MVP → V1

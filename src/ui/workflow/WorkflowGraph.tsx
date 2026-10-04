@@ -4,22 +4,36 @@
  * Tirer depuis la pastille de droite d'une étape jusqu'à une autre fait
  * attendre la seconde après la première. Cliquer un lien le sélectionne ;
  * Suppr ou ✕ le retire. La disposition est recalculée à chaque changement.
+ *
+ * Avec `live`, le graphe suit une exécution : lecture seule (aucune
+ * édition pendant qu'un run tourne), chaque carte colorée par l'état réel
+ * de sa tâche tel que le moteur le publie.
  */
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { Agent, WorkflowCheck, WorkflowStep } from "../../ipc";
+import type { Agent, TaskStatus, WorkflowCheck, WorkflowStep } from "../../ipc";
 import { canLink, columnX, edgePath, HEAD, layout, NODE_H, NODE_W, pointerPath, type Edge } from "./graph";
 
 interface Drag { from: number; x: number; y: number; target: number | null; reason: string | null }
 
-export function WorkflowGraph({ steps, check, agents, selected, onSelect, onLink, onUnlink }: {
+/** État d'exécution d'une carte, dans l'ordre des étapes. */
+export interface LiveStep { status: TaskStatus; progress?: number | null }
+
+export const LIVE_LABEL: Record<TaskStatus, string> = {
+  queued: "en attente", running: "en cours", paused: "en pause", waiting: "validation requise",
+  completed: "terminée", failed: "échouée", cancelled: "annulée",
+};
+
+export function WorkflowGraph({ steps, check, agents, selected, onSelect, onLink, onUnlink, live }: {
   steps: WorkflowStep[];
   check: WorkflowCheck | null;
   agents: Agent[];
   selected: number | null;
   onSelect: (i: number | null) => void;
-  onLink: (from: number, to: number) => void;
-  onUnlink: (from: number, to: number) => void;
+  onLink?: (from: number, to: number) => void;
+  onUnlink?: (from: number, to: number) => void;
+  live?: LiveStep[];
 }) {
+  const readOnly = !!live;
   const geo = useMemo(() => layout(steps), [steps]);
   const inner = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -31,7 +45,7 @@ export function WorkflowGraph({ steps, check, agents, selected, onSelect, onLink
   }, [geo, edge]);
 
   useEffect(() => {
-    if (!edge) return;
+    if (!edge || !onUnlink) return;
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
@@ -66,7 +80,7 @@ export function WorkflowGraph({ steps, check, agents, selected, onSelect, onLink
   const endDrag = (e: ReactPointerEvent) => {
     if (!drag) return;
     inner.current?.releasePointerCapture(e.pointerId);
-    if (drag.target !== null && drag.reason === null) {
+    if (drag.target !== null && drag.reason === null && onLink) {
       onLink(drag.from, drag.target);
       onSelect(drag.target);
     }
@@ -79,7 +93,7 @@ export function WorkflowGraph({ steps, check, agents, selected, onSelect, onLink
   return (
     <div className="wf-canvas" onPointerDown={() => { onSelect(null); setEdge(null); }}>
       <div
-        ref={inner} className="wf-inner" data-dragging={!!drag}
+        ref={inner} className="wf-inner" data-dragging={!!drag} data-live={readOnly}
         style={{ width: geo.width, height: geo.height }}
         onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => setDrag(null)}
       >
@@ -99,13 +113,17 @@ export function WorkflowGraph({ steps, check, agents, selected, onSelect, onLink
             const d = edgePath(geo.nodes[e.from], geo.nodes[e.to]);
             const on = edge?.from === e.from && edge?.to === e.to;
             const lit = selected === e.from || selected === e.to;
+            // En direct, un lien s'allume quand le relais est passé.
+            const passed = live?.[e.from]?.status === "completed";
             return (
               <g key={`${e.from}-${e.to}`}>
-                <path d={d} className="wf-edge" data-active={on} data-lit={lit} markerEnd="url(#wf-arrow)" />
-                <path
-                  d={d} className="wf-edge-hit"
-                  onPointerDown={(ev) => { ev.stopPropagation(); setEdge(e); onSelect(null); }}
-                />
+                <path d={d} className="wf-edge" data-active={on} data-lit={lit} data-passed={passed} markerEnd="url(#wf-arrow)" />
+                {!readOnly && (
+                  <path
+                    d={d} className="wf-edge-hit"
+                    onPointerDown={(ev) => { ev.stopPropagation(); setEdge(e); onSelect(null); }}
+                  />
+                )}
               </g>
             );
           })}
@@ -117,7 +135,7 @@ export function WorkflowGraph({ steps, check, agents, selected, onSelect, onLink
           )}
         </svg>
 
-        {edge && (() => {
+        {edge && onUnlink && (() => {
           const a = geo.nodes[edge.from], b = geo.nodes[edge.to];
           const forward = b.x > a.x;
           const x = forward ? (a.x + NODE_W + b.x) / 2 : (a.x + NODE_W + b.x) / 2;
@@ -141,6 +159,7 @@ export function WorkflowGraph({ steps, check, agents, selected, onSelect, onLink
           const res = check?.steps[box.index];
           const assigned = agentName(res?.agentId);
           const isTarget = drag?.target === box.index && drag.from !== box.index;
+          const state = live?.[box.index];
           return (
             <div
               key={box.index}
@@ -148,6 +167,7 @@ export function WorkflowGraph({ steps, check, agents, selected, onSelect, onLink
               data-node={box.index}
               data-selected={selected === box.index}
               data-level={level}
+              data-status={state?.status}
               data-target={isTarget ? (drag?.reason ? "invalid" : "valid") : undefined}
               style={{ left: box.x, top: box.y, width: NODE_W, height: NODE_H }}
               onPointerDown={(ev) => { ev.stopPropagation(); setEdge(null); onSelect(box.index); }}
@@ -164,15 +184,23 @@ export function WorkflowGraph({ steps, check, agents, selected, onSelect, onLink
                   : <span className="wf-dim">{step.roleHint ? `rôle « ${step.roleHint} » : personne` : "aucun agent"}</span>}
               </div>
               <div className="wf-node-tags">
-                {step.commands.some((c) => c.trim())
+                {state && (
+                  <span className="wf-tag wf-live" data-status={state.status}>
+                    {LIVE_LABEL[state.status]}
+                    {state.status === "running" && state.progress ? ` · ${Math.round(state.progress * 100)} %` : ""}
+                  </span>
+                )}
+                {!readOnly && (step.commands.some((c) => c.trim())
                   ? <span className="wf-tag" data-kind="cmd">$ {step.commands.filter((c) => c.trim()).length} commande{step.commands.filter((c) => c.trim()).length > 1 ? "s" : ""}</span>
-                  : <span className="wf-tag" data-kind="ai">◆ IA</span>}
-                {step.requiresApproval && <span className="wf-tag" data-kind="approval">validation</span>}
+                  : <span className="wf-tag" data-kind="ai">◆ IA</span>)}
+                {!readOnly && step.requiresApproval && <span className="wf-tag" data-kind="approval">validation</span>}
               </div>
-              <span
-                className="wf-port out" title="Tirer vers l'étape qui doit attendre celle-ci"
-                onPointerDown={(ev) => startDrag(box.index, ev)}
-              />
+              {!readOnly && (
+                <span
+                  className="wf-port out" title="Tirer vers l'étape qui doit attendre celle-ci"
+                  onPointerDown={(ev) => startDrag(box.index, ev)}
+                />
+              )}
             </div>
           );
         })}

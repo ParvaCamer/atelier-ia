@@ -334,3 +334,57 @@ async fn etape_sans_commande_echoue_explicitement_sans_fournisseur() {
     let failed = wait_for(&w, &task.id, TaskStatus::Failed).await;
     assert!(failed.error.unwrap().contains("agent IA"));
 }
+
+/// État des étapes d'un run, tel que le snapshot le projette.
+async fn snapshot_steps(w: &World, run: &RunId) -> Vec<(String, TaskStatus)> {
+    w.engine
+        .current_snapshot()
+        .await
+        .runs
+        .into_iter()
+        .find(|r| &r.id == run)
+        .map(|r| r.steps.into_iter().map(|s| (s.title, s.status)).collect())
+        .unwrap_or_default()
+}
+
+async fn wait_snapshot(w: &World, run: &RunId, want: &[(&str, TaskStatus)]) {
+    let want: Vec<(String, TaskStatus)> = want.iter().map(|(t, s)| (format!("Étape {t}"), *s)).collect();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let got = snapshot_steps(w, run).await;
+        if got == want {
+            return;
+        }
+        assert!(Instant::now() < deadline, "snapshot attendu {want:?}, obtenu {got:?}");
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+}
+
+/// Le graphe d'exécution en direct ne lit que le snapshot : chaque étape doit
+/// y passer par ses états réels, attente de validation comprise.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn snapshot_suit_l_etat_de_chaque_etape() {
+    let w = world(&[("shell.exec", cmd("echo"), Mode::Allow)], 2).await;
+    let (a0, a1) = (&w.agents[0], &w.agents[1]);
+    let mut gate = step("valide", a1, &["prep"], &["echo validee"]);
+    gate.requires_approval = true;
+    let id = save_workflow(&w, vec![step("prep", a0, &[], &["echo prep"]), gate, step("refus", a0, &["valide"], &["false"])]).await;
+
+    let run = w.engine.launch_workflow(&id).await.unwrap();
+    let tasks = repo::tasks::list_by_run(w.engine.db(), &run).await.unwrap();
+    let view = w.engine.current_snapshot().await.runs.into_iter().find(|r| r.id == run).unwrap();
+    assert_eq!(view.steps.len(), 3);
+    assert_eq!(view.steps[1].depends_on, vec![tasks[0].id.clone()], "les arêtes du DAG sont projetées");
+    assert_eq!(view.steps[1].agent_id, *a1);
+
+    // prep terminée, valide suspendue sur la validation, refus en file.
+    wait_snapshot(&w, &run, &[("prep", TaskStatus::Completed), ("valide", TaskStatus::Waiting), ("refus", TaskStatus::Queued)]).await;
+
+    let pending = repo::approvals::pending(w.engine.db()).await.unwrap();
+    w.engine.resolve_approval(&pending[0].id, true).await.unwrap();
+    // `false` n'est pas autorisé : la dernière étape échoue.
+    wait_snapshot(&w, &run, &[("prep", TaskStatus::Completed), ("valide", TaskStatus::Completed), ("refus", TaskStatus::Failed)]).await;
+    let view = w.engine.current_snapshot().await.runs.into_iter().find(|r| r.id == run).unwrap();
+    assert_eq!(view.status, RunStatus::Failed);
+    assert_eq!(view.done, 2);
+}

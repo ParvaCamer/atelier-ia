@@ -107,6 +107,8 @@ button {
 }
 .stat b { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
 .stat.alert b { color: var(--warn); }
+button.stat:not(:disabled):hover { color: var(--text); }
+button.stat:disabled { cursor: default; }
 
 /* ---------------------------------- monde 3D ---------------------------------- */
 
@@ -705,6 +707,14 @@ select.input { appearance: none; padding-right: 22px; background-image: linear-g
 .run-detail-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-faint); }
 .run-request { margin: 14px 0 0; padding: 10px 14px; border-left: 3px solid #a78bfa; background: rgba(167, 139, 250, 0.06); border-radius: 0 8px 8px 0; color: var(--text); font-size: 13px; }
 
+.run-graph { margin-top: 18px; }
+.run-graph-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.run-graph-head h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.run-graph .wf-canvas { height: auto; min-height: 0; max-height: 46vh; }
+.live-badge { font-size: 10.5px; padding: 1px 7px; border-radius: 9px; color: var(--info); border: 1px solid rgba(56, 189, 248, 0.5); animation: live-pulse 1.6s ease-in-out infinite; }
+@keyframes live-pulse { 50% { opacity: 0.45; } }
+.task-card[data-focused="true"] { border-color: var(--accent); }
+.task-card[data-status="waiting"] .task-dot { background: var(--warn); }
 .timeline { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
 .task-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
 .task-card[data-status="failed"] { border-color: rgba(239, 68, 68, 0.35); }
@@ -834,6 +844,21 @@ select.input { appearance: none; padding-right: 22px; background-image: linear-g
 .wf-tag[data-kind="cmd"] { font-family: var(--mono); color: var(--info); }
 .wf-tag[data-kind="ai"] { color: var(--accent); }
 .wf-tag[data-kind="approval"] { color: var(--warn); }
+/* graphe en direct : la couleur de la carte suit l'état de sa tâche */
+.wf-node[data-status] { transition: border-color 0.3s, background 0.3s; }
+.wf-node[data-status="queued"] { opacity: 0.75; }
+.wf-node[data-status="running"] { border-color: var(--info); background: rgba(96, 165, 250, 0.08); box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.16); }
+.wf-node[data-status="paused"] { border-color: rgba(148, 178, 220, 0.6); background: rgba(148, 178, 220, 0.06); }
+.wf-node[data-status="waiting"] { border-color: var(--warn); background: rgba(251, 191, 36, 0.08); box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.16); }
+.wf-node[data-status="completed"] { border-color: rgba(52, 211, 153, 0.65); background: rgba(52, 211, 153, 0.07); }
+.wf-node[data-status="failed"] { border-color: var(--err); background: rgba(239, 68, 68, 0.08); }
+.wf-node[data-status="cancelled"] { opacity: 0.5; border-style: dashed; }
+.wf-live[data-status="running"] { color: var(--info); }
+.wf-live[data-status="waiting"] { color: var(--warn); }
+.wf-live[data-status="completed"] { color: var(--ok); }
+.wf-live[data-status="failed"] { color: #fca5a5; }
+.wf-edge[data-passed="true"] { stroke: rgba(52, 211, 153, 0.6); }
+.wf-inner[data-live="true"] .wf-node { cursor: pointer; }
 .wf-port { position: absolute; top: 50%; width: 12px; height: 12px; margin-top: -6px; border-radius: 50%; background: var(--panel-solid); border: 2px solid rgba(148, 178, 220, 0.45); }
 .wf-port.in { left: -7px; pointer-events: none; }
 .wf-port.out { right: -7px; cursor: crosshair; }

@@ -2,5 +2,11 @@
 import type { ProjectId } from "./ProjectId";
 import type { RunId } from "./RunId";
 import type { RunStatus } from "./RunStatus";
+import type { RunStepView } from "./RunStepView";
 
-export type RunView = { id: RunId, projectId: ProjectId, title: string, status: RunStatus, total: number, done: number, };
+export type RunView = { id: RunId, projectId: ProjectId, title: string, status: RunStatus, total: number, done: number, 
+/**
+ * État de chaque étape, dans l'ordre de déclaration : de quoi colorer
+ * le graphe d'exécution en direct sans second chemin de données.
+ */
+steps: Array<RunStepView>, };

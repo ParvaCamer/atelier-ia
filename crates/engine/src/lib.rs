@@ -277,9 +277,27 @@ impl Engine {
             status: run.status,
             total: tasks.len() as u32,
             done: tasks.iter().filter(|t| t.status == TaskStatus::Completed).count() as u32,
+            steps: tasks
+                .iter()
+                .map(|t| RunStepView {
+                    task_id: t.id.clone(),
+                    title: t.title.clone(),
+                    agent_id: t.agent_id.clone(),
+                    status: t.status,
+                    depends_on: t.depends_on.clone(),
+                })
+                .collect(),
         };
         self.world.write().await.upsert_run(view);
         Ok(())
+    }
+
+    /// Rafraîchit le run d'une tâche après un changement d'état qui ne passe
+    /// pas par `update_run_status` (attente de validation, par exemple).
+    pub(crate) async fn refresh_run_of(&self, task_id: &TaskId) {
+        if let Ok(task) = repo::tasks::get(&self.db, task_id).await {
+            let _ = self.refresh_run(&task.run_id).await;
+        }
     }
 
     pub async fn refresh_approvals(&self) -> anyhow::Result<()> {

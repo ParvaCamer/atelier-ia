@@ -14,7 +14,7 @@ export function Header({ onFocusProject, onFrameAll }: Props) {
   const snapshot = useWorld((s) => s.snapshot);
 
   const working = snapshot.agents.filter((a) => a.status === "working").length;
-  const runs = snapshot.runs.filter((r) => r.status === "running").length;
+  const running = snapshot.runs.filter((r) => r.status === "running");
 
   return (
     <header className="header">
@@ -39,7 +39,13 @@ export function Header({ onFocusProject, onFrameAll }: Props) {
       <CommandBar />
 
       <div className="stat"><b>{working}</b> actifs</div>
-      <div className="stat"><b>{runs}</b> workflows</div>
+      <button
+        className="stat" disabled={!running.length}
+        onClick={() => useHistory.getState().show(running[running.length - 1]?.id ?? null)}
+        title={running.length ? "Voir le déroulement en direct" : "Aucun workflow en cours"}
+      >
+        <b>{running.length}</b> workflows
+      </button>
       {snapshot.pendingApprovals > 0 && (
         <div className="stat alert"><b>{snapshot.pendingApprovals}</b> à valider</div>
       )}

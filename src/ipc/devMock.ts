@@ -9,8 +9,9 @@
  * Ce n'est PAS un mode de démonstration : il n'est jamais actif dans
  * l'application réelle, où toutes ces données viennent du moteur.
  */
+import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { Agent, AgentStatus, Activity, Project, WorldSnapshot } from "./generated";
+import type { Agent, AgentStatus, Activity, Project, TaskStatus, WorldSnapshot } from "./generated";
 
 export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -70,12 +71,31 @@ const STATES: [AgentStatus, Activity][] = [
   ["working", "network"], ["idle", "none"], ["working", "shell"], ["idle", "none"],
 ];
 
+/* Exécution simulée qui avance toute seule (cycle de 30 s) : de quoi voir
+   les cartes du graphe changer de couleur sans moteur. */
+const LIVE_START = Date.now();
+const LIVE_STEPS: { id: string; title: string; agentId: string; dependsOn: string[]; at: (t: number) => TaskStatus }[] = [
+  { id: "lt0", title: "Analyse du dépôt", agentId: "a0", dependsOn: [], at: (t) => (t < 4 ? "running" : "completed") },
+  { id: "lt1", title: "Tests unitaires", agentId: "a3", dependsOn: ["lt0"], at: (t) => (t < 4 ? "queued" : t < 12 ? "running" : "completed") },
+  { id: "lt2", title: "Lint", agentId: "a1", dependsOn: ["lt0"], at: (t) => (t < 4 ? "queued" : t < 8 ? "running" : "completed") },
+  { id: "lt3", title: "Notes de version", agentId: "a5", dependsOn: ["lt0"], at: (t) => (t < 4 ? "queued" : t < 14 ? "waiting" : t < 18 ? "running" : "completed") },
+  { id: "lt4", title: "Build release", agentId: "a2", dependsOn: ["lt1", "lt2"], at: (t) => (t < 12 ? "queued" : t < 20 ? "running" : "failed") },
+];
+const liveT = () => ((Date.now() - LIVE_START) / 1000) % 30;
+function liveRun() {
+  const t = liveT();
+  const steps = LIVE_STEPS.map((s) => ({ taskId: s.id, title: s.title, agentId: s.agentId, status: s.at(t), dependsOn: s.dependsOn }));
+  const status = steps.some((s) => s.status === "failed") ? "failed" : steps.every((s) => s.status === "completed") ? "completed" : "running";
+  return { id: "r-live", projectId: "p1", title: "Release Spotly (simulée)", status, total: steps.length,
+    done: steps.filter((s) => s.status === "completed").length, steps } as const;
+}
+
 function snapshot(tick: number): WorldSnapshot {
   return {
     tick,
     ts: new Date().toISOString(),
     pendingApprovals: 1,
-    runs: [],
+    runs: [liveRun()],
     agents: AGENTS.map((a, i) => {
       const [status, activity] = STATES[i % STATES.length];
       return {
@@ -165,11 +185,31 @@ let SCHEDULES: Record<string, any>[] = [
 
 export function installDevMock() {
   let tick = 0;
+  // Le snapshot est poussé comme le ferait le moteur : l'exécution simulée avance.
+  setInterval(() => { void emit("world:snapshot", snapshot(++tick)); }, 1000);
   mockIPC(async (cmd, payload) => {
     const args = (payload ?? {}) as Record<string, any>;
     switch (cmd) {
-      case "list_runs": return RUNS;
+      case "list_runs": {
+        const live = liveRun();
+        return [{ ...MOCK_RUN("r-live", live.title, live.status, 1, null), total: live.total, done: live.done }, ...RUNS];
+      }
       case "run_detail": {
+        if (args.runId === "r-live") {
+          const live = liveRun();
+          return {
+            summary: { ...MOCK_RUN("r-live", live.title, live.status, 1, null), total: live.total, done: live.done },
+            tasks: live.steps.map((s) => ({
+              agentName: AGENTS.find((a) => a.id === s.agentId)?.name ?? "?",
+              task: { id: s.taskId, runId: "r-live", projectId: "p1", agentId: s.agentId, title: s.title, description: "",
+                status: s.status, progress: s.status === "completed" ? 1 : 0, dependsOn: s.dependsOn, commands: ["./gradlew build"],
+                requiresApproval: s.taskId === "lt3", result: s.status === "completed" ? "OK" : null,
+                error: s.status === "failed" ? "`./gradlew assembleRelease` a échoué (code 1)" : null, attempt: 0,
+                createdAt: iso(1), startedAt: s.status === "queued" ? null : iso(1), finishedAt: null },
+              toolCalls: [],
+            })),
+          };
+        }
         const summary = RUNS.find((r) => r.run.id === args.runId) ?? RUNS[0];
         return {
           summary,
@@ -287,7 +327,7 @@ export function installDevMock() {
         return "r-mock";
       default: return null;
     }
-  });
+  }, { shouldMockEvents: true });
   // eslint-disable-next-line no-console
   console.info("[atelier] harnais navigateur actif — données factices, moteur absent");
 }

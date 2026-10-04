@@ -134,6 +134,7 @@ impl Engine {
         repo::approvals::insert(self.db(), &approval).await?;
 
         let _ = repo::tasks::transition(self.db(), &task_id, TaskStatus::Waiting).await;
+        self.refresh_run_of(&task_id).await;
         self.set_agent_state(&ctx.agent_id, AgentStatus::NeedsApproval, Activity::None).await;
         self.report_action(&ctx.agent_id, format!("Attend ta validation : {summary}")).await;
         ctx.log(LogStream::System, format!("⏸ validation requise — {summary} ({reason})"));
@@ -156,6 +157,7 @@ impl Engine {
         };
 
         let _ = repo::tasks::transition(self.db(), &task_id, TaskStatus::Running).await;
+        self.refresh_run_of(&task_id).await;
         self.set_agent_state(&ctx.agent_id, AgentStatus::Working, Activity::Thinking).await;
         Ok(granted)
     }

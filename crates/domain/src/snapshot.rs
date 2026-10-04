@@ -8,6 +8,7 @@
 use crate::{
     agent::{Activity, AgentStatus},
     ids::*,
+    task::TaskStatus,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -71,6 +72,25 @@ pub struct RunView {
     pub status: crate::workflow::RunStatus,
     pub total: u32,
     pub done: u32,
+    /// État de chaque étape, dans l'ordre de déclaration : de quoi colorer
+    /// le graphe d'exécution en direct sans second chemin de données.
+    pub steps: Vec<RunStepView>,
+}
+
+/// Une étape d'un run vue de l'extérieur. Les dépendances sont des
+/// identifiants de tâches : la disposition du graphe reste l'affaire de
+/// l'interface.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RunStepView {
+    pub task_id: TaskId,
+    pub title: String,
+    pub agent_id: AgentId,
+    /// `waiting` = suspendue sur une validation humaine ; une étape qui
+    /// attend ses dépendances reste `queued`.
+    pub status: TaskStatus,
+    pub depends_on: Vec<TaskId>,
 }
 
 impl WorldSnapshot {

@@ -4,12 +4,13 @@
  * rien n'est reconstitué à partir du discours des agents.
  */
 import { useEffect, useMemo, useState } from "react";
-import type { LogLine, ProjectId, RunDetail, RunFilter, RunStatus, RunSummary, TaskDetail, ToolCallRecord } from "../../ipc";
+import type { LogLine, ProjectId, RunDetail, RunFilter, RunStatus, RunStepView, RunSummary, TaskDetail, TaskId, ToolCallRecord } from "../../ipc";
 import { api } from "../../ipc";
 import { useConfig } from "../../state/config";
 import { useHistory } from "../../state/history";
 import { useWorld } from "../../state/store";
 import { formatDuration, formatTime } from "../bits";
+import { RunGraph } from "../workflow/RunGraph";
 
 const RUN_STATUS: Record<RunStatus, string> = {
   planning: "planification", running: "en cours", paused: "en pause",
@@ -140,8 +141,12 @@ export function History() {
 function RunDetailView({ runId }: { runId: string }) {
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [focusTask, setFocusTask] = useState<TaskId | null>(null);
   const launchWorkflow = useWorld((s) => s.launchWorkflow);
   const close = useHistory((s) => s.close);
+  // Run vivant : son état arrive par le snapshot, déjà diffusé à 8 Hz.
+  const liveRun = useWorld((s) => s.snapshot.runs.find((r) => r.id === runId));
+  const liveKey = liveRun ? `${liveRun.status}|${liveRun.steps.map((s) => s.status).join(",")}` : "";
 
   const load = async () => {
     try {
@@ -152,11 +157,23 @@ function RunDetailView({ runId }: { runId: string }) {
     }
   };
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [runId]);
+  // Une étape change d'état : le détail (résultats, actions) est relu.
+  useEffect(() => { if (liveKey) void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [liveKey]);
+
+  const steps: RunStepView[] = useMemo(() => liveRun?.steps ?? (detail?.tasks ?? []).map(({ task }) => ({
+    taskId: task.id, title: task.title, agentId: task.agentId, status: task.status, dependsOn: task.dependsOn,
+  })), [liveRun, detail]);
+
+  const pick = (id: TaskId | null) => {
+    setFocusTask(id);
+    if (id) document.getElementById(`task-${id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
 
   if (error) return <div className="feedback" data-kind="error">{error}</div>;
   if (!detail) return <div className="empty">Chargement…</div>;
 
   const { run } = detail.summary;
+  const status = liveRun?.status ?? run.status;
   const replay = async () => {
     if (run.workflowId) await launchWorkflow(run.workflowId);
     else if (run.request) await api.submitRequest(run.request, run.projectId);
@@ -175,13 +192,13 @@ function RunDetailView({ runId }: { runId: string }) {
             {detail.summary.scheduleId && " · lancée par une planification"}
           </div>
         </div>
-        <span className="run-status big" data-status={run.status}>{RUN_STATUS[run.status]}</span>
+        <span className="run-status big" data-status={status}>{RUN_STATUS[status]}</span>
       </div>
 
       {run.request && <blockquote className="run-request">« {run.request} »</blockquote>}
 
       <div className="actions">
-        {(run.workflowId || run.request) && !["running", "planning", "paused"].includes(run.status) && (
+        {(run.workflowId || run.request) && !["running", "planning", "paused"].includes(status) && (
           <button className="btn" onClick={replay} title={run.request && !run.workflowId ? "Nouvelle planification par l'orchestrateur (consomme du quota)" : undefined}>
             {run.workflowId ? "Relancer le workflow" : "Relancer la demande"}
           </button>
@@ -189,14 +206,25 @@ function RunDetailView({ runId }: { runId: string }) {
         <button className="btn ghost" onClick={() => void load()}>Actualiser</button>
       </div>
 
+      {steps.length > 0 && (
+        <div className="run-graph" data-live={!!liveRun && ["running", "planning", "paused"].includes(status)}>
+          <div className="run-graph-head">
+            <h3>Déroulement</h3>
+            {liveRun && ["running", "planning", "paused"].includes(status) && <span className="live-badge">en direct</span>}
+            <span className="wf-dim">{steps.filter((s) => s.status === "completed").length}/{steps.length} étapes terminées · clic sur une étape pour son détail</span>
+          </div>
+          <RunGraph steps={steps} selected={focusTask} onSelect={pick} />
+        </div>
+      )}
+
       <div className="timeline">
-        {detail.tasks.map((t) => <TaskCard key={t.task.id} detail={t} onChanged={load} />)}
+        {detail.tasks.map((t) => <TaskCard key={t.task.id} detail={t} onChanged={load} focused={focusTask === t.task.id} />)}
       </div>
     </div>
   );
 }
 
-function TaskCard({ detail, onChanged }: { detail: TaskDetail; onChanged: () => void }) {
+function TaskCard({ detail, onChanged, focused }: { detail: TaskDetail; onChanged: () => void; focused: boolean }) {
   const { task, agentName, toolCalls } = detail;
   const [showCalls, setShowCalls] = useState(task.status === "failed");
   const [logs, setLogs] = useState<LogLine[] | null>(null);
@@ -205,7 +233,7 @@ function TaskCard({ detail, onChanged }: { detail: TaskDetail; onChanged: () => 
   const refused = useMemo(() => toolCalls.filter((c) => c.decision !== "allow").length, [toolCalls]);
 
   return (
-    <div className="task-card" data-status={task.status}>
+    <div className="task-card" id={`task-${task.id}`} data-status={task.status} data-focused={focused}>
       <div className="task-card-head">
         <span className="task-dot" />
         <strong>{task.title}</strong>

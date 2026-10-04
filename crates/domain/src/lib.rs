@@ -29,7 +29,7 @@ pub use memory::{MemoryEntry, MemoryFilter, MemoryKind, MemoryScope, MemoryView}
 pub use schedule::{Schedule, ScheduleOutcome, ScheduleTarget};
 pub use permission::{Decision, Grant, Mode, ResourceScope};
 pub use project::{Project, Zone};
-pub use snapshot::{AgentView, RunView, TaskBrief, WorldSnapshot};
+pub use snapshot::{AgentView, RunStepView, RunView, TaskBrief, WorldSnapshot};
 pub use task::{Task, TaskControl, TaskStatus};
 pub use workflow::{
     IssueLevel, Run, RunStatus, StepResolution, Trigger, Workflow, WorkflowCheck, WorkflowIssue, WorkflowStep,
