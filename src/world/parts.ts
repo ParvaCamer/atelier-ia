@@ -8,6 +8,7 @@
 import {
   BoxGeometry, CanvasTexture, CircleGeometry, CylinderGeometry, SRGBColorSpace,
 } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 /** Pièces d'un agent. Le repère local a les pieds en y = 0. */
 export const parts = {
@@ -97,6 +98,21 @@ export const props = {
     return g;
   })(),
   benchLeg: new CylinderGeometry(0.07, 0.07, 0.42, 6),
+  /** Armoire à fichiers : trois tiroirs, ouverte vers +z. */
+  cabinet: (() => {
+    const g = new BoxGeometry(1.6, 1.3, 0.6);
+    g.translate(0, 0.65, 0);
+    return g;
+  })(),
+  /** Façades des tiroirs, légèrement en saillie pour lire les rangées. */
+  drawers: (() => {
+    const rows = [0.25, 0.65, 1.05].map((y) => {
+      const d = new BoxGeometry(1.44, 0.32, 0.04);
+      d.translate(0, y, 0.31);
+      return d;
+    });
+    return mergeGeometries(rows)!;
+  })(),
 };
 
 /**
@@ -120,21 +136,35 @@ export function shadowTexture(): CanvasTexture {
   return tex;
 }
 
-/** Étiquette de zone : texte rendu en canvas, affiché comme sprite. */
-export function labelTexture(text: string, color: string): CanvasTexture {
+/**
+ * Étiquette de zone : texte rendu en canvas, affiché comme sprite. La
+ * largeur suit le texte mesuré — une largeur fixe coupait les noms longs
+ * (« INFRASTRUCTURE » devenait « IFRASTRUCTUR »). Renvoie aussi le rapport
+ * largeur/hauteur, pour que le sprite ne déforme pas les lettres.
+ */
+export function labelTexture(text: string, color: string): { texture: CanvasTexture; aspect: number } {
+  const font = "600 54px ui-sans-serif, -apple-system, system-ui, sans-serif";
+  const spacing = 6;
+  const label = text.toUpperCase();
+  const measure = document.createElement("canvas").getContext("2d")!;
+  measure.font = font;
+  measure.letterSpacing = `${spacing}px`;
+  const width = Math.ceil(measure.measureText(label).width + spacing * 2 + 48);
+  const height = 128;
+
   const canvas = document.createElement("canvas");
   const dpr = 2;
-  canvas.width = 512 * dpr;
-  canvas.height = 128 * dpr;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
   const ctx = canvas.getContext("2d")!;
   ctx.scale(dpr, dpr);
-  ctx.font = "600 54px ui-sans-serif, -apple-system, system-ui, sans-serif";
+  ctx.font = font;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = color;
-  ctx.letterSpacing = "6px";
-  ctx.fillText(text.toUpperCase(), 256, 64);
-  const tex = new CanvasTexture(canvas);
-  tex.colorSpace = SRGBColorSpace;
-  return tex;
+  ctx.letterSpacing = `${spacing}px`;
+  ctx.fillText(label, width / 2, height / 2);
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  return { texture, aspect: width / height };
 }

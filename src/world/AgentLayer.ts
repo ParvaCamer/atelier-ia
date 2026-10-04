@@ -1,36 +1,46 @@
 /**
  * Couche des agents.
  *
- * Tous les agents du monde sont rendus en **six** draw calls, quel que
- * soit leur nombre : une `InstancedMesh` par pièce du corps. L'animation
- * (marche, frappe au clavier, bras levé) se fait en réécrivant les
- * matrices d'instance, sans squelette ni mixer.
+ * Tous les agents du monde sont rendus en une poignée de draw calls, quel
+ * que soit leur nombre : une `InstancedMesh` par pièce du corps. L'animation
+ * (marche, frappe au clavier, bras levé, saut de fin) se fait en réécrivant
+ * les matrices d'instance, sans squelette ni mixer.
  *
  * C'est ici, et nulle part ailleurs, que l'état métier devient du
  * mouvement. Le moteur n'a jamais émis la moindre coordonnée.
  */
 import {
-  Color, DoubleSide, InstancedMesh, Mesh, MeshBasicMaterial,
-  MeshLambertMaterial, Object3D, Raycaster, Scene, Vector3,
+  AdditiveBlending, BoxGeometry, Color, DoubleSide, InstancedMesh, Mesh, MeshBasicMaterial,
+  MeshLambertMaterial, Object3D, Raycaster, RingGeometry, Scene, Vector3,
 } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { AgentView, Agent } from "../ipc";
-import { ARCHETYPE_COLOR, PULSING, STATUS_COLOR, stationFor } from "./palette";
+import { APPROVAL_COLOR, ARCHETYPE_COLOR, PULSING, STATUS_COLOR, THINKING_COLOR, stationFor, type StationKind } from "./palette";
 import { parts, shadowTexture } from "./parts";
-import { targetFor, type ZoneLayout } from "./layout";
+import { AGENT_RADIUS, targetFor, type Spot, type ZoneLayout } from "./layout";
+import { clampTo, nextWaypoint, pushOut } from "./nav";
 
 /** Teinte des pièces de contraste (col, face avant). */
 const DARK = new Color("#0b1119");
+const HIDDEN = new Color(0, 0, 0);
 
 const WALK_SPEED = 2.4;
 const TURN_SPEED = 7.0;
 /** En deçà, on considère l'agent arrivé : évite le tremblement sur place. */
 const ARRIVED = 0.12;
+/** Recalcul du point de passage : assez souvent pour suivre un détour. */
+const REPATH = 0.3;
+/** Durée de la petite célébration de fin de tâche, en secondes. */
+const CELEBRATE = 1.3;
 
 interface Node {
   id: string;
   index: number;
+  zone: ZoneLayout;
   pos: Vector3;
-  target: Vector3;
+  target: Spot;
+  waypoint: { x: number; z: number } | null;
+  repathIn: number;
   heading: number;
   desiredHeading: number;
   walkPhase: number;
@@ -39,12 +49,25 @@ interface Node {
   view: AgentView;
   bodyColor: Color;
   statusColor: Color;
+  /** Horloge de la scène au passage en « terminé », pour l'animation. */
+  completedAt: number | null;
+}
+
+/** Point d'exclamation : une barre et un point, fusionnés en une géométrie. */
+function bangGeometry() {
+  const bar = new BoxGeometry(0.09, 0.3, 0.09);
+  bar.translate(0, 0.2, 0);
+  const dot = new BoxGeometry(0.09, 0.09, 0.09);
+  dot.translate(0, -0.03, 0);
+  return mergeGeometries([bar, dot])!;
 }
 
 export class AgentLayer {
   private readonly dummy = new Object3D();
   private readonly nodes = new Map<string, Node>();
   private order: string[] = [];
+  private clock = 0;
+  private readonly camera = new Vector3();
 
   private readonly base: InstancedMesh;
   private readonly body: InstancedMesh;
@@ -54,6 +77,8 @@ export class AgentLayer {
   private readonly arms: InstancedMesh;
   private readonly shadows: InstancedMesh;
   private readonly hits: InstancedMesh;
+  private readonly halos: InstancedMesh;
+  private readonly bangs: InstancedMesh;
 
   constructor(scene: Scene, private readonly capacity = 128) {
     // Pas de `vertexColors` : les couleurs viennent de `instanceColor`.
@@ -84,6 +109,16 @@ export class AgentLayer {
       capacity,
     );
     this.hits.renderOrder = -1;
+    // Halo additif : une couleur noire le rend invisible, ce qui permet de
+    // l'éteindre par instance sans changer le nombre d'instances.
+    const ring = new RingGeometry(0.26, 0.36, 28);
+    ring.rotateX(-Math.PI / 2);
+    this.halos = new InstancedMesh(
+      ring,
+      new MeshBasicMaterial({ transparent: true, blending: AdditiveBlending, depthWrite: false, side: DoubleSide }),
+      capacity,
+    );
+    this.bangs = new InstancedMesh(bangGeometry(), new MeshBasicMaterial({}), capacity);
 
     for (const m of this.meshes()) {
       m.frustumCulled = false;
@@ -93,7 +128,7 @@ export class AgentLayer {
   }
 
   private meshes(): InstancedMesh[] {
-    return [this.base, this.body, this.head, this.neck, this.visor, this.arms, this.shadows, this.hits];
+    return [this.base, this.body, this.head, this.neck, this.visor, this.arms, this.shadows, this.hits, this.halos, this.bangs];
   }
 
   /**
@@ -102,36 +137,51 @@ export class AgentLayer {
    */
   sync(views: AgentView[], agents: Map<string, Agent>, zones: Map<string, ZoneLayout>) {
     const seen = new Set<string>();
+    // Places aux meubles partagés (baie, armoire, banc) : une par agent,
+    // dans l'ordre de la liste, pour qu'ils ne s'empilent pas.
+    const seats = new Map<string, number>();
 
     views.forEach((view) => {
       const zone = zones.get(view.projectId);
       if (!zone) return;
       seen.add(view.id);
+      const station = stationFor(view.status, view.activity);
+      const seatKey = `${view.projectId}:${station}`;
+      const seat = seats.get(seatKey) ?? 0;
+      seats.set(seatKey, seat + 1);
 
       let node = this.nodes.get(view.id);
       if (!node) {
         if (this.nodes.size >= this.capacity) return;
-        const spawn = targetFor(zone, view.id, "home").clone();
+        const spawn = targetFor(zone, view.id, "home");
         node = {
           id: view.id,
           index: this.nodes.size,
-          pos: spawn.clone(),
+          zone,
+          pos: spawn.pos.clone(),
           target: spawn,
-          heading: 0,
-          desiredHeading: 0,
+          waypoint: null,
+          repathIn: 0,
+          heading: spawn.facing,
+          desiredHeading: spawn.facing,
           walkPhase: Math.random() * Math.PI * 2,
           motion: 0,
           view,
           bodyColor: new Color(ARCHETYPE_COLOR[agents.get(view.id)?.archetype ?? "dev"]),
           statusColor: new Color(STATUS_COLOR[view.status]),
+          completedAt: null,
         };
         this.nodes.set(view.id, node);
         this.order.push(view.id);
       }
 
+      if (view.status === "completed" && node.view.status !== "completed") node.completedAt = this.clock;
       node.view = view;
+      node.zone = zone;
       node.statusColor.set(STATUS_COLOR[view.status]);
-      node.target = targetFor(zone, view.id, stationFor(view.status, view.activity));
+      const next = targetFor(zone, view.id, station as StationKind, seat);
+      if (!next.pos.equals(node.target.pos)) node.repathIn = 0;
+      node.target = next;
     });
 
     // Un agent supprimé de la configuration disparaît du monde.
@@ -143,8 +193,7 @@ export class AgentLayer {
     }
 
     const n = this.nodes.size;
-    this.base.count = this.body.count = this.head.count = this.neck.count = n;
-    this.visor.count = this.shadows.count = this.hits.count = n;
+    for (const m of this.meshes()) m.count = n;
     this.arms.count = n * 2;
   }
 
@@ -156,34 +205,55 @@ export class AgentLayer {
     });
   }
 
-  /** Déplacement et animation. Appelée à chaque image. */
-  update(dt: number, time: number) {
+  /**
+   * Déplacement et animation. Appelée à chaque image. Renvoie `true` si
+   * quelque chose bouge vraiment (marche, saut, signal qui pulse) : la
+   * boucle de rendu s'en sert pour ralentir quand le monde est au repos.
+   */
+  update(dt: number, time: number, cameraPos?: Vector3): boolean {
+    this.clock = time;
+    if (cameraPos) this.camera.copy(cameraPos);
+    let lively = false;
     for (const node of this.nodes.values()) {
       this.steer(node, dt);
-      this.writeMatrices(node, time);
+      this.separate(node, dt);
+      lively = this.writeMatrices(node, time) || lively;
     }
     for (const m of this.meshes()) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
+    return lively;
   }
 
   private steer(node: Node, dt: number) {
-    const dx = node.target.x - node.pos.x;
-    const dz = node.target.z - node.pos.z;
-    const dist = Math.hypot(dx, dz);
+    const goal = node.target.pos;
+    const dist = Math.hypot(goal.x - node.pos.x, goal.z - node.pos.z);
 
     if (dist > ARRIVED) {
-      const step = Math.min(WALK_SPEED * dt, dist);
-      node.pos.x += (dx / dist) * step;
-      node.pos.z += (dz / dist) * step;
-      node.desiredHeading = Math.atan2(dx, dz);
+      node.repathIn -= dt;
+      if (!node.waypoint || node.repathIn <= 0) {
+        node.waypoint = nextWaypoint(node.pos, goal, node.zone.obstacles);
+        node.repathIn = REPATH;
+      }
+      const wp = node.waypoint;
+      const dx = wp.x - node.pos.x;
+      const dz = wp.z - node.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d < ARRIVED) {
+        node.waypoint = null;
+      } else {
+        const step = Math.min(WALK_SPEED * dt, d);
+        node.pos.x += (dx / d) * step;
+        node.pos.z += (dz / d) * step;
+        node.desiredHeading = Math.atan2(dx, dz);
+      }
       node.motion = Math.min(1, node.motion + dt * 5);
       node.walkPhase += dt * 9;
     } else {
+      node.waypoint = null;
       node.motion = Math.max(0, node.motion - dt * 5);
-      // Arrivé à destination, l'agent se tourne vers son poste (face au nord).
-      node.desiredHeading = 0;
+      node.desiredHeading = node.view.status === "needs-approval" ? this.towardCamera(node) : node.target.facing;
     }
 
     // Rotation par le plus court chemin : sans ça, un agent fait
@@ -194,23 +264,60 @@ export class AgentLayer {
     node.heading += delta * Math.min(1, TURN_SPEED * dt);
   }
 
-  private writeMatrices(node: Node, time: number) {
+  /** Il demande ta validation : il se tourne vers toi. */
+  private towardCamera(node: Node) {
+    return Math.atan2(this.camera.x - node.pos.x, this.camera.z - node.pos.z);
+  }
+
+  /**
+   * Deux agents qui se croisent s'écartent l'un de l'autre au lieu de se
+   * traverser, sans jamais être poussés dans un meuble ni hors de la zone.
+   */
+  private separate(node: Node, dt: number) {
+    if (node.motion < 0.02) return;
+    for (const other of this.nodes.values()) {
+      if (other === node || other.zone !== node.zone) continue;
+      const dx = node.pos.x - other.pos.x;
+      const dz = node.pos.z - other.pos.z;
+      const d = Math.hypot(dx, dz);
+      const min = AGENT_RADIUS * 2;
+      if (d > 1e-4 && d < min) {
+        const push = ((min - d) / d) * Math.min(1, dt * 6);
+        node.pos.x += dx * push;
+        node.pos.z += dz * push;
+      }
+    }
+    for (const b of node.zone.obstacles) pushOut(b, node.pos);
+    clampTo(node.zone.bounds, node.pos);
+  }
+
+  private writeMatrices(node: Node, time: number): boolean {
     const dummy = this.dummy;
     const i = node.index;
     const walking = node.motion > 0.02;
-    const working = node.view.status === "working" && !walking;
-    const pulse = PULSING.has(node.view.status) ? 0.55 + 0.45 * Math.sin(time * 4) : 1;
+    const status = node.view.status;
+    const working = status === "working" && !walking;
+    const thinking = working && node.view.activity === "thinking";
+    const pulse = PULSING.has(status) ? 0.55 + 0.45 * Math.sin(time * 4) : 1;
+
+    // Célébration de fin : un petit saut avec un tour sur soi-même.
+    const since = node.completedAt === null ? Infinity : time - node.completedAt;
+    const celebrating = status === "completed" && since < CELEBRATE && !walking;
+    const k = celebrating ? since / CELEBRATE : 0;
+    const hop = celebrating ? Math.abs(Math.sin(k * Math.PI * 2)) * 0.35 * (1 - k) : 0;
+    const spin = celebrating ? k * Math.PI * 2 : 0;
 
     const bob = walking ? Math.sin(node.walkPhase * 2) * 0.045 * node.motion : 0;
     // Respiration : à peine perceptible, mais un monde totalement figé
     // paraît cassé.
     const breathe = working ? Math.sin(time * 3) * 0.012 : Math.sin(time * 1.3) * 0.006;
-    const lean = working ? 0.1 : node.view.status === "error" ? 0.22 : 0;
-    const y = bob + breathe;
+    const lean = working && !thinking ? 0.1 : status === "error" ? 0.22 : 0;
+    const y = bob + breathe + hop;
+    const heading = node.heading + spin;
 
     const place = (mesh: InstancedMesh, slot: number, dy = 0, color?: Color) => {
       dummy.position.set(node.pos.x, y + dy, node.pos.z);
-      dummy.rotation.set(lean, node.heading, 0);
+      dummy.rotation.set(lean, heading, 0, "YXZ");
       dummy.scale.setScalar(1);
       dummy.updateMatrix();
       mesh.setMatrixAt(slot, dummy.matrix);
@@ -226,19 +333,38 @@ export class AgentLayer {
     place(this.visor, i, 0, DARK);
     place(this.hits, i);
 
+    // Halo de réflexion : un anneau qui respire au-dessus de la tête,
+    // l'agent reste immobile à son poste pendant que le modèle travaille.
+    dummy.position.set(node.pos.x, 1.62 + y + Math.sin(time * 2.4) * 0.04, node.pos.z);
+    dummy.rotation.set(0, time * 0.8, 0);
+    dummy.scale.setScalar(thinking ? 1 + Math.sin(time * 3.2) * 0.12 : 0.0001);
+    dummy.updateMatrix();
+    this.halos.setMatrixAt(i, dummy.matrix);
+    this.halos.setColorAt(i, thinking ? new Color(THINKING_COLOR).multiplyScalar(0.6 + 0.4 * Math.sin(time * 3.2)) : HIDDEN);
+
+    // « ! » au-dessus de l'agent qui attend une validation.
+    const asking = status === "needs-approval";
+    dummy.position.set(node.pos.x, 1.75 + y + (asking ? Math.abs(Math.sin(time * 3)) * 0.12 : 0), node.pos.z);
+    dummy.rotation.set(0, this.towardCamera(node), 0);
+    dummy.scale.setScalar(asking ? 1 : 0.0001);
+    dummy.updateMatrix();
+    this.bangs.setMatrixAt(i, dummy.matrix);
+    this.bangs.setColorAt(i, new Color(APPROVAL_COLOR));
+
     // L'ombre est teintée par l'état : vue de dessus — l'angle de caméra
     // le plus courant — c'est elle qui reste visible en premier.
     dummy.position.set(node.pos.x, 0.02, node.pos.z);
     dummy.rotation.set(-Math.PI / 2, 0, 0);
-    dummy.scale.setScalar(1);
+    dummy.scale.setScalar(1 - hop * 0.8);
     dummy.updateMatrix();
     this.shadows.setMatrixAt(i, dummy.matrix);
     this.shadows.setColorAt(i, node.statusColor);
 
-    this.writeArms(node, i, time, walking, working);
+    this.writeArms(node, i, time, walking, working, y, heading, celebrating);
+    return walking || celebrating || asking || thinking || PULSING.has(status) || (working && node.view.activity === "shell");
   }
 
-  private writeArms(node: Node, i: number, time: number, walking: boolean, working: boolean) {
+  private writeArms(node: Node, i: number, time: number, walking: boolean, working: boolean, y: number, heading: number, celebrating: boolean) {
     const { dummy } = this;
     const swing = walking ? Math.sin(node.walkPhase) * 0.7 * node.motion : 0;
     // Frappe au clavier : les deux bras avancent et vibrent en opposition.
@@ -253,15 +379,13 @@ export class AgentLayer {
       // Un seul bras se lève pour demander une validation : plus lisible
       // qu'une posture symétrique, qui ressemblerait à un étirement.
       if (raised && side === 0) pitch = raised;
+      // Les deux bras en l'air pour fêter une tâche terminée.
+      if (celebrating) pitch = -2.6;
 
-      const cos = Math.cos(node.heading);
-      const sin = Math.sin(node.heading);
-      dummy.position.set(
-        node.pos.x + shoulderX * cos,
-        0.92 + (walking ? Math.sin(node.walkPhase * 2) * 0.045 : 0),
-        node.pos.z - shoulderX * sin,
-      );
-      dummy.rotation.set(pitch, node.heading, sign * 0.08);
+      const cos = Math.cos(heading);
+      const sin = Math.sin(heading);
+      dummy.position.set(node.pos.x + shoulderX * cos, 0.92 + y, node.pos.z - shoulderX * sin);
+      dummy.rotation.set(pitch, heading, sign * 0.08, "YXZ");
       dummy.scale.setScalar(1);
       dummy.updateMatrix();
       this.arms.setMatrixAt(i * 2 + side, dummy.matrix);
@@ -287,7 +411,7 @@ export class AgentLayer {
   /** Vrai si l'agent est à son poste : sert à allumer l'écran. */
   isAtDesk(id: string): boolean {
     const node = this.nodes.get(id);
-    return !!node && node.motion < 0.05 && node.view.status === "working";
+    return !!node && node.motion < 0.05 && node.view.status === "working" && stationFor(node.view.status, node.view.activity) === "desk";
   }
 
   dispose() {

@@ -1,5 +1,6 @@
 /**
- * Décor : plateformes de zone, postes de travail, baies techniques, bancs.
+ * Décor : plateformes de zone, postes de travail, baies techniques,
+ * armoires à fichiers, bancs.
  *
  * Même principe que les agents — un `InstancedMesh` par type d'objet,
  * partagé par toutes les zones. Passer de 4 à 20 projets n'ajoute donc
@@ -61,6 +62,8 @@ export class SceneryLayer {
       zones.length,
     );
     const benches = new InstancedMesh(props.bench, lambert(PROP), zones.length);
+    const cabinets = new InstancedMesh(props.cabinet, lambert(PROP_DARK), zones.length);
+    const drawers = new InstancedMesh(props.drawers, lambert(PROP), zones.length);
 
     let desk = 0;
     this.deskOwners = [];
@@ -88,6 +91,8 @@ export class SceneryLayer {
       this.place(rackLights, zi, zone.rack.x, 0, zone.rack.z);
       rackLights.setColorAt(zi, accent);
       this.place(benches, zi, zone.bench.x, 0, zone.bench.z);
+      this.place(cabinets, zi, zone.cabinet.x, 0, zone.cabinet.z);
+      this.place(drawers, zi, zone.cabinet.x, 0, zone.cabinet.z);
 
       const owners = agentsByProject.get(zone.project.id) ?? [];
       zone.deskTransforms.forEach((t, i) => {
@@ -103,7 +108,7 @@ export class SceneryLayer {
       this.group.add(this.zoneLabel(zone));
     });
 
-    for (const m of [platforms, rims, deskTops, deskLegs, monitors, screens, racks, rackLights, benches]) {
+    for (const m of [platforms, rims, deskTops, deskLegs, monitors, screens, racks, rackLights, benches, cabinets, drawers]) {
       m.frustumCulled = false;
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
@@ -125,9 +130,10 @@ export class SceneryLayer {
   }
 
   private zoneLabel(zone: ZoneLayout): Sprite {
+    const { texture, aspect } = labelTexture(zone.project.name, zone.project.color);
     const sprite = new Sprite(
       new SpriteMaterial({
-        map: labelTexture(zone.project.name, zone.project.color),
+        map: texture,
         transparent: true,
         depthWrite: false,
         opacity: 0.9,
@@ -138,7 +144,9 @@ export class SceneryLayer {
     // caméra tourne — un sprite fait toujours face à l'objectif.
     const { x, z } = zone.project.zone;
     sprite.position.set(x, 4.8, z);
-    sprite.scale.set(9, 2.25, 1);
+    // Hauteur de lettre constante ; la largeur suit le nom, bornée par la zone.
+    const height = Math.min(2.25, (zone.project.zone.width * 0.9) / aspect);
+    sprite.scale.set(height * aspect, height, 1);
     return sprite;
   }
 

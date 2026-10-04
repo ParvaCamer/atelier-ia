@@ -418,18 +418,26 @@ Techniques :
 - **Boucle suspendue** quand la fenêtre est cachée ou qu'aucun agent ne bouge
   (mode idle → 10 fps).
 
-Pipeline de traduction état → visuel (`src/world/agents/behavior.ts`) :
+Pipeline de traduction état → visuel (`src/world/palette.ts` pour la
+destination, `AgentLayer.ts` pour le mouvement) :
 
 | État moteur | Comportement 3D |
 |---|---|
-| `IDLE` | debout à sa position d'attente, respiration |
-| `WORKING` + `activity=SHELL` | marche vers le poste terminal, anim frappe |
-| `WORKING` + `activity=FS` | marche vers l'armoire de fichiers |
-| `WORKING` + `activity=LLM` | statique, halo pulsé |
-| `WAITING` | marche vers la zone d'attente, regarde le dépendant |
-| `NEEDS_APPROVAL` | se tourne vers la caméra, icône ! |
-| `ERROR` | posture affaissée, teinte rouge |
-| `COMPLETED` | courte anim, retour idle |
+| `IDLE` | debout devant son poste, tourné vers l'allée, respiration |
+| `WORKING` + `shell` / `review` | marche jusqu'au bureau, face à l'écran ; frappe au clavier (`shell`) |
+| `WORKING` + `files` | marche jusqu'à l'armoire à fichiers |
+| `WORKING` + `git` / `network` | marche jusqu'à la baie technique |
+| `WORKING` + `thinking` | immobile au bureau, halo qui respire au-dessus de la tête |
+| `WAITING` | va au banc d'attente (une place par agent) |
+| `NEEDS_APPROVAL` | se tourne vers la caméra, bras levé, « ! » qui rebondit |
+| `ERROR` | posture affaissée, tête rouge qui pulse |
+| `COMPLETED` | petit saut avec un tour sur soi, bras levés, puis retour au repos |
+
+Déplacements (`src/world/nav.ts`, fonctions pures) : chaque meuble a une
+emprise au sol ; un agent dont la ligne droite traverse un meuble passe par
+le coin le plus avantageux, deux agents qui se croisent s'écartent, aucun
+ne sort de sa plateforme. Au repos (personne ne marche, caméra posée,
+aucun signal), la boucle descend à 10 images/s.
 
 ---
 

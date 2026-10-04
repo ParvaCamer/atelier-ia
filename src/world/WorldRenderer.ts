@@ -19,6 +19,8 @@ import { buildLayout, type ZoneLayout } from "./layout";
 import { GROUND } from "./palette";
 
 const MIN_RADIUS = 12;
+/** Intervalle entre deux images quand rien ne bouge (10 images/s). */
+const IDLE_FRAME_MS = 100;
 const MAX_RADIUS = 95;
 
 interface Orbit {
@@ -54,6 +56,9 @@ export class WorldRenderer {
 
   private raf = 0;
   private last = 0;
+  /** Dernière image effectivement rendue, pour le ralenti au repos. */
+  private lastFrame = 0;
+  private lively = true;
   private elapsed = 0;
   private disposed = false;
   private lastTick = -1;
@@ -299,13 +304,23 @@ export class WorldRenderer {
       // Le moteur, lui, continue de tourner.
       if (document.hidden || useConfig.getState().open || useHistory.getState().open) return;
 
+      // Monde au repos (personne ne marche, caméra posée, aucun signal qui
+      // pulse) : 10 images par seconde suffisent à la respiration des
+      // agents, et le portable ne chauffe pas pour une scène immobile.
+      const ticked = useWorld.getState().snapshot.tick !== this.lastTick;
+      if (!this.lively && !ticked && !this.cameraMoving() && now - this.lastFrame < IDLE_FRAME_MS) return;
+      this.lastFrame = now;
+
       const dt = Math.min((now - this.last) / 1000 || 0, 0.1);
       this.last = now;
       this.elapsed += dt;
 
       this.pullSnapshot();
       this.updateCamera(dt);
-      this.agents.update(dt, this.elapsed);
+      const agentsMoving = this.agents.update(dt, this.elapsed, this.camera.position);
+      const relays = useWorld.getState().relays;
+      const relaying = relays.some((r) => now - r.at < 3000);
+      this.lively = agentsMoving || relaying;
       this.handoffs.update(useWorld.getState().relays, now, (id, out) => this.agents.positionOf(id, out));
       this.scenery.updateScreens(
         (id) => this.agents.isAtDesk(id),
@@ -344,6 +359,13 @@ export class WorldRenderer {
     return this.owners;
   }
 
+  /** La caméra n'a pas encore rejoint sa consigne (glissement, zoom, cadrage). */
+  private cameraMoving(): boolean {
+    const o = this.orbit, d = this.desired;
+    return Math.abs(o.radius - d.radius) > 0.01 || Math.abs(o.theta - d.theta) > 1e-4
+      || Math.abs(o.phi - d.phi) > 1e-4 || o.target.distanceToSquared(d.target) > 1e-4;
+  }
+
   /** Amortissement : la caméra suit la consigne, elle ne saute jamais. */
   private updateCamera(dt: number) {
     const k = 1 - Math.exp(-dt * 7);
@@ -365,7 +387,7 @@ export class WorldRenderer {
   renderOnce() {
     this.pullSnapshot();
     this.updateCamera(0.5);
-    this.agents.update(0.016, this.elapsed);
+    this.agents.update(0.016, this.elapsed, this.camera.position);
     this.renderer.render(this.scene, this.camera);
     return {
       calls: this.renderer.info.render.calls,

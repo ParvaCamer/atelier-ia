@@ -46,19 +46,25 @@ export const PULSING: ReadonlySet<AgentStatus> = new Set<AgentStatus>([
   "error",
 ]);
 
+/** Halo de réflexion (appel au modèle en cours). */
+export const THINKING_COLOR = "#a5f3fc";
+/** Signal « ! » d'une validation attendue. */
+export const APPROVAL_COLOR = "#f59e0b";
+
 /**
  * Poste de travail visé selon l'activité.
  * C'est **ici** que l'état métier devient une position dans l'espace —
  * le moteur, lui, n'a jamais connaissance d'une coordonnée.
  */
-export type StationKind = "desk" | "rack" | "bench" | "home";
+export type StationKind = "desk" | "rack" | "cabinet" | "bench" | "home";
 
 export function stationFor(status: AgentStatus, activity: Activity): StationKind {
   if (status === "waiting") return "bench";
   if (status !== "working") return "home";
   switch (activity) {
-    case "shell":
     case "files":
+      return "cabinet";
+    case "shell":
     case "review":
       return "desk";
     case "git":

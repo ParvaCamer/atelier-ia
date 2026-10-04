@@ -97,7 +97,10 @@ function snapshot(tick: number): WorldSnapshot {
     pendingApprovals: 1,
     runs: [liveRun()],
     agents: AGENTS.map((a, i) => {
-      const [status, activity] = STATES[i % STATES.length];
+      let [status, activity] = STATES[i % STATES.length];
+      // Un agent alterne travail et fin de tâche : de quoi voir la
+      // célébration et la marche aller-retour sans moteur.
+      if (i === 8) [status, activity] = tick % 16 < 8 ? ["working", "files"] : ["completed", "none"];
       return {
         id: a.id, projectId: a.projectId, status, activity,
         lastAction: status === "working" ? "Modification de ProductSearch.ts" : null,
