@@ -451,9 +451,12 @@ async fn brouillon_de_skill_nettoye_sans_ecriture() {
 
     let e = engine_drafting("  \n ``` ```  ").await;
     let project = repo::projects::list(e.db()).await.unwrap().remove(0);
+    // Compté avant l'appel : figer le nombre de skills livrés ferait échouer
+    // ce test à chaque nouveau métier ajouté au catalogue.
+    let avant = e.list_agent_skills().await.unwrap();
     let err = e.draft_agent_skill("Testeur", &project.id).await.unwrap_err().to_string();
     assert!(err.contains("vide") && err.contains("Testeur"), "{err}");
-    assert_eq!(e.list_agent_skills().await.unwrap().len(), 2, "toujours rien d'écrit après un échec");
+    assert_eq!(e.list_agent_skills().await.unwrap(), avant, "toujours rien d'écrit après un échec");
 }
 
 // =====================================================================
