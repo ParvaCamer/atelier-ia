@@ -22,4 +22,12 @@ tools: Array<string>,
  * Jamais un identifiant de modèle en dur : changer de fournisseur
  * ne doit pas toucher la définition des agents.
  */
-modelRef: string, archetype: Archetype, enabled: boolean, };
+modelRef: string, archetype: Archetype, enabled: boolean, 
+/**
+ * Skill de rôle (le métier, partagé entre projets). `None` = aucun.
+ */
+skillSlug: string | null, 
+/**
+ * Surcouche propre à cet agent : quelques lignes, jamais le métier redit.
+ */
+skillNotes: string, };

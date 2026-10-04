@@ -8,7 +8,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  Agent, AgentId, AppSettings, Approval, ApprovalId, DomainEvent, Grant, LogLine, ModelRoute,
+  Agent, AgentId, AgentSkill, AppSettings, Approval, ApprovalId, DomainEvent, Grant, LogLine, ModelRoute,
   Project, ProjectId, ProviderConfig, ProviderHealth, PtyId, RouteTest, Run, RunId, Task,
   TaskControl, TaskId, ToolInfo, Workflow, WorkflowId, WorldSnapshot,
   MemoryEntry, MemoryFilter, MemoryId, MemoryView, RunDetail, RunFilter, RunSummary,
@@ -83,6 +83,11 @@ export const api = {
   getSettings: () => invoke<AppSettings>("get_settings"),
   saveSettings: (settings: AppSettings) => invoke<AppSettings>("save_settings", { settings }),
   toolCatalog: () => invoke<ToolInfo[]>("tool_catalog"),
+  listAgentSkills: () => invoke<AgentSkill[]>("list_agent_skills"),
+  saveAgentSkill: (skill: AgentSkill) => invoke<AgentSkill>("save_agent_skill", { skill }),
+  deleteAgentSkill: (slug: string) => invoke<void>("delete_agent_skill", { slug }),
+  /** Brouillon à relire : n'enregistre rien. */
+  draftAgentSkill: (role: string, projectId: ProjectId) => invoke<string>("draft_agent_skill", { role, projectId }),
 
   // --- historique ---
   listRuns: (filter: RunFilter) => invoke<RunSummary[]>("list_runs", { filter }),

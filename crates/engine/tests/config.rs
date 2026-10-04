@@ -44,7 +44,7 @@ fn agent_draft(project: &ProjectId, name: &str) -> Agent {
         tools: vec!["shell.exec".into(), "outil.fantome".into()],
         model_ref: "reasoning.default".into(),
         archetype: Archetype::Dev,
-        enabled: true,
+        enabled: true, skill_slug: None, skill_notes: String::new(),
     }
 }
 
@@ -319,4 +319,133 @@ async fn ollama_injoignable_signale() {
 
     let settings = e.save_settings(AppSettings { start_ollama_with_app: true }).await.unwrap();
     assert!(e.settings().await.unwrap().start_ollama_with_app == settings.start_ollama_with_app);
+}
+
+// =====================================================================
+// Skills de rôle
+// =====================================================================
+
+/// Fournisseur qui renvoie un texte libre fixé d'avance : le brouillon de
+/// skill est du markdown, pas du JSON.
+struct FixedText(String);
+
+#[async_trait::async_trait]
+impl atelier_providers::Provider for FixedText {
+    fn kind(&self) -> &'static str {
+        "fixed"
+    }
+    async fn complete(
+        &self,
+        _: &str,
+        _: &atelier_providers::CompletionRequest,
+        _: &tokio_util::sync::CancellationToken,
+    ) -> Result<atelier_providers::Completion, atelier_providers::ProviderError> {
+        Ok(atelier_providers::Completion {
+            text: self.0.clone(),
+            json: None,
+            usage: Default::default(),
+            served_by: "fixed".into(),
+        })
+    }
+}
+
+async fn engine_drafting(reply: &str) -> Arc<Engine> {
+    use atelier_providers::{ProviderRegistry, Route};
+    let db = Db::open_in_memory().await.unwrap();
+    seed::run_if_empty(&db).await.unwrap();
+    seed::ensure_builtin_agent_skills(&db).await.unwrap();
+    let route = Route { provider_id: "fixed".into(), model: String::new(), max_tokens: 4096, temperature: 0.0, fallback: None };
+    let registry = ProviderRegistry::new()
+        .with_provider("fixed", Arc::new(FixedText(reply.into())))
+        .with_route("reasoning.high", route.clone())
+        .with_route("reasoning.default", route);
+    Engine::start_with(db, EngineConfig { providers: Some(registry), ..Default::default() }).await.unwrap()
+}
+
+fn skill_draft(slug: &str, content: &str) -> AgentSkill {
+    AgentSkill { slug: slug.into(), title: format!("Skill {slug}"), content: content.into(), origin: SkillOrigin::User, updated_at: chrono::Utc::now() }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn skills_livres_seedes_une_fois_sans_ecraser_l_utilisateur() {
+    let e = engine().await;
+    seed::ensure_builtin_agent_skills(e.db()).await.unwrap();
+    seed::ensure_builtin_agent_skills(e.db()).await.unwrap();
+
+    let skills = e.list_agent_skills().await.unwrap();
+    assert_eq!(skills.iter().filter(|s| s.slug == "qa").count(), 1, "deux passages, une seule ligne");
+    let qa = skills.iter().find(|s| s.slug == "qa").unwrap();
+    assert_eq!(qa.origin, SkillOrigin::Builtin);
+    assert_eq!(qa.title, "Assurance qualité", "titre tiré du fichier livré");
+    assert!(qa.content.contains("Tu ne corriges pas"), "contenu embarqué depuis skills/agents/qa.md");
+
+    // L'utilisateur réécrit le skill : le seed suivant ne doit pas y toucher.
+    let mine = e.save_agent_skill(AgentSkill { content: "Ma méthode QA maison.".into(), ..qa.clone() }).await.unwrap();
+    assert_eq!(mine.origin, SkillOrigin::User);
+    seed::ensure_builtin_agent_skills(e.db()).await.unwrap();
+    let after = repo::agent_skills::get(e.db(), "qa").await.unwrap().unwrap();
+    assert_eq!(after.content, "Ma méthode QA maison.");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_avec_skill_inconnu_refuse_en_nommant_le_slug() {
+    let e = engine().await;
+    seed::ensure_builtin_agent_skills(e.db()).await.unwrap();
+    let project = e.save_project(project_draft("Skills", None)).await.unwrap();
+
+    let mut draft = agent_draft(&project.id, "QA skills");
+    draft.skill_slug = Some("astronaute".into());
+    let err = e.save_agent(draft.clone()).await.unwrap_err().to_string();
+    assert!(err.contains("« astronaute »"), "{err}");
+
+    draft.skill_slug = Some(" qa ".into());
+    draft.skill_notes = "  Teste d'abord sur Android 10.  ".into();
+    let saved = e.save_agent(draft).await.unwrap();
+    assert_eq!(saved.skill_slug.as_deref(), Some("qa"));
+    assert_eq!(saved.skill_notes, "Teste d'abord sur Android 10.");
+    let stored = repo::agents::get(e.db(), &saved.id).await.unwrap();
+    assert_eq!(stored.skill_slug.as_deref(), Some("qa"), "colonne persistée");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn skill_utilise_non_supprimable_et_agents_nommes() {
+    let e = engine().await;
+    let project = e.save_project(project_draft("Suppr", None)).await.unwrap();
+    e.save_agent_skill(skill_draft("revue", "Relis tout.")).await.unwrap();
+    let mut draft = agent_draft(&project.id, "Relecteur");
+    draft.skill_slug = Some("revue".into());
+    e.save_agent(draft).await.unwrap();
+
+    let err = e.delete_agent_skill("revue").await.unwrap_err().to_string();
+    assert!(err.contains("Relecteur"), "l'agent qui l'utilise doit être nommé : {err}");
+    assert!(repo::agent_skills::get(e.db(), "revue").await.unwrap().is_some(), "rien n'a été supprimé");
+
+    e.save_agent_skill(skill_draft("libre", "Personne ne m'utilise.")).await.unwrap();
+    e.delete_agent_skill("libre").await.unwrap();
+    assert!(repo::agent_skills::get(e.db(), "libre").await.unwrap().is_none());
+
+    assert!(e.save_agent_skill(skill_draft("Pas Bon!", "x")).await.unwrap_err().to_string().contains("invalide"));
+    assert!(e.save_agent_skill(skill_draft("vide", "   ")).await.unwrap_err().to_string().contains("vide"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn brouillon_de_skill_nettoye_sans_ecriture() {
+    let e = engine_drafting("```markdown\n# Testeur\n\n## Rôle\n\nTu vérifies.\n```").await;
+    let project = repo::projects::list(e.db()).await.unwrap().remove(0);
+    let before = e.list_agent_skills().await.unwrap();
+
+    let text = e.draft_agent_skill("Testeur", &project.id).await.unwrap();
+    assert_eq!(text, "# Testeur\n\n## Rôle\n\nTu vérifies.", "bloc de code englobant retiré");
+    assert_eq!(e.list_agent_skills().await.unwrap(), before, "un brouillon n'écrit rien en base");
+
+    let long = "a".repeat(9_000);
+    let e = engine_drafting(&long).await;
+    let project = repo::projects::list(e.db()).await.unwrap().remove(0);
+    assert_eq!(e.draft_agent_skill("Testeur", &project.id).await.unwrap().chars().count(), 4_000, "tronqué");
+
+    let e = engine_drafting("  \n ``` ```  ").await;
+    let project = repo::projects::list(e.db()).await.unwrap().remove(0);
+    let err = e.draft_agent_skill("Testeur", &project.id).await.unwrap_err().to_string();
+    assert!(err.contains("vide") && err.contains("Testeur"), "{err}");
+    assert_eq!(e.list_agent_skills().await.unwrap().len(), 2, "toujours rien d'écrit après un échec");
 }

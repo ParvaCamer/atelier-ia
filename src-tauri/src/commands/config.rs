@@ -109,3 +109,24 @@ pub async fn save_settings(state: State<'_, AppState>, settings: AppSettings) ->
 pub fn tool_catalog(state: State<'_, AppState>) -> Vec<ToolInfo> {
     state.engine.tool_catalog()
 }
+
+#[tauri::command]
+pub async fn list_agent_skills(state: State<'_, AppState>) -> CmdResult<Vec<AgentSkill>> {
+    state.engine.list_agent_skills().await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn save_agent_skill(state: State<'_, AppState>, skill: AgentSkill) -> CmdResult<AgentSkill> {
+    state.engine.save_agent_skill(skill).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn delete_agent_skill(state: State<'_, AppState>, slug: String) -> CmdResult<()> {
+    state.engine.delete_agent_skill(&slug).await.map_err(err)
+}
+
+/// Renvoie un texte à relire : rien n'est enregistré par cette commande.
+#[tauri::command]
+pub async fn draft_agent_skill(state: State<'_, AppState>, role: String, project_id: ProjectId) -> CmdResult<String> {
+    state.engine.draft_agent_skill(&role, &project_id).await.map_err(err)
+}

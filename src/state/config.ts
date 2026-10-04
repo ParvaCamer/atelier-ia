@@ -7,7 +7,7 @@
  */
 import { create } from "zustand";
 import type {
-  AppSettings, ModelRoute, Project, ProviderConfig, ProviderHealth, ToolInfo,
+  AgentSkill, AppSettings, ModelRoute, Project, ProviderConfig, ProviderHealth, ToolInfo,
 } from "../ipc";
 import { api } from "../ipc";
 import { useWorld } from "./store";
@@ -26,12 +26,16 @@ interface ConfigStore {
   healthLoading: boolean;
   tools: ToolInfo[];
   settings: AppSettings;
+  /** Skills de rôle, partagés par tous les projets. */
+  skills: AgentSkill[];
 
   openAt: (section?: Section, focusId?: string | null) => void;
   close: () => void;
   setSection: (section: Section) => void;
   load: () => Promise<void>;
   refreshHealth: () => Promise<void>;
+  /** Recharge les skills seuls : ne réinitialise pas l'agent en cours d'édition. */
+  reloadSkills: () => Promise<void>;
   /** À appeler après toute écriture réussie. */
   afterSave: () => Promise<void>;
 }
@@ -47,6 +51,7 @@ export const useConfig = create<ConfigStore>((set, get) => ({
   healthLoading: false,
   tools: [],
   settings: { startOllamaWithApp: false },
+  skills: [],
 
   openAt: (section, focusId = null) =>
     set((s) => ({ open: true, section: section ?? s.section, focusId })),
@@ -54,14 +59,15 @@ export const useConfig = create<ConfigStore>((set, get) => ({
   setSection: (section) => set({ section, focusId: null }),
 
   async load() {
-    const [allProjects, providers, routes, tools, settings] = await Promise.all([
+    const [allProjects, providers, routes, tools, settings, skills] = await Promise.all([
       api.listAllProjects(),
       api.listProviderConfigs(),
       api.listModelRoutes(),
       api.toolCatalog(),
       api.getSettings(),
+      api.listAgentSkills(),
     ]);
-    set({ allProjects, providers, routes, tools, settings });
+    set({ allProjects, providers, routes, tools, settings, skills });
     // L'état des fournisseurs lance des processus : chargé à part, sans
     // bloquer l'affichage du reste.
     void get().refreshHealth();
@@ -74,6 +80,10 @@ export const useConfig = create<ConfigStore>((set, get) => ({
     } finally {
       set({ healthLoading: false });
     }
+  },
+
+  async reloadSkills() {
+    set({ skills: await api.listAgentSkills() });
   },
 
   async afterSave() {

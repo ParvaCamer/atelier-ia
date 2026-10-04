@@ -15,6 +15,8 @@ fn map(row: &sqlx::sqlite::SqliteRow) -> Result<Agent> {
         model_ref: row.get("model_ref"),
         archetype: str_to_enum::<Archetype>(&row.get::<String, _>("archetype"))?,
         enabled: row.get::<i64, _>("enabled") != 0,
+        skill_slug: row.get("skill_slug"),
+        skill_notes: row.get("skill_notes"),
     })
 }
 
@@ -37,12 +39,13 @@ pub async fn get(db: &Db, id: &AgentId) -> Result<Agent> {
 pub async fn upsert(db: &Db, a: &Agent) -> Result<()> {
     sqlx::query(
         "INSERT INTO agents (id, project_id, name, role, system_prompt, skills, tools,
-                             model_ref, archetype, enabled, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                             model_ref, archetype, enabled, skill_slug, skill_notes, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET
             project_id=excluded.project_id, name=excluded.name, role=excluded.role, system_prompt=excluded.system_prompt,
             skills=excluded.skills, tools=excluded.tools, model_ref=excluded.model_ref,
-            archetype=excluded.archetype, enabled=excluded.enabled",
+            archetype=excluded.archetype, enabled=excluded.enabled,
+            skill_slug=excluded.skill_slug, skill_notes=excluded.skill_notes",
     )
     .bind(a.id.as_str())
     .bind(a.project_id.as_str())
@@ -54,6 +57,8 @@ pub async fn upsert(db: &Db, a: &Agent) -> Result<()> {
     .bind(&a.model_ref)
     .bind(enum_to_str(&a.archetype))
     .bind(a.enabled as i64)
+    .bind(a.skill_slug.as_deref())
+    .bind(&a.skill_notes)
     .bind(Utc::now().to_rfc3339())
     .execute(db.pool())
     .await?;

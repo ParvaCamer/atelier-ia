@@ -1,4 +1,5 @@
 use crate::ids::{AgentId, ProjectId};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -24,6 +25,38 @@ pub struct Agent {
     pub model_ref: String,
     pub archetype: Archetype,
     pub enabled: bool,
+    /// Skill de rôle (le métier, partagé entre projets). `None` = aucun.
+    #[serde(default)]
+    pub skill_slug: Option<String>,
+    /// Surcouche propre à cet agent : quelques lignes, jamais le métier redit.
+    #[serde(default)]
+    pub skill_notes: String,
+}
+
+/// Skill de rôle : la méthode d'un métier, injectée dans le prompt de tout
+/// agent qui le porte. Il décrit une façon de travailler, il n'accorde
+/// aucun droit — les `Grant` restent seuls juges.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AgentSkill {
+    /// Identifiant stable, en minuscules : « qa », « dev-front ».
+    pub slug: String,
+    pub title: String,
+    /// Markdown.
+    pub content: String,
+    pub origin: SkillOrigin,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export)]
+pub enum SkillOrigin {
+    /// Livré avec l'application (`skills/agents/`), jamais réécrit par le seed.
+    Builtin,
+    /// Créé ou modifié par l'utilisateur.
+    User,
 }
 
 /// Apparence 3D. Seule donnée d'agent que le frontend interprète visuellement.

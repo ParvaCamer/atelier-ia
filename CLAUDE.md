@@ -95,11 +95,14 @@ La modification est un acte humain, visible, enregistré.
 Les permissions restent du ressort du moteur : **un skill n'accorde aucun
 droit**, il décrit une méthode.
 
-**État actuel : rien de tout ça n'est implémenté.** Les agents portent un
-`system_prompt` et une liste d'étiquettes `skills` en base. Le stockage,
-la génération du brouillon et l'injection au lancement d'une tâche restent
-à écrire. Écrire quand même les skills de rôle dans `skills/agents/` :
-c'est le contrat visé.
+**État actuel : implémenté.** Table `agent_skills` (migration 0005),
+`agents.skill_slug` + `agents.skill_notes`, skills livrés embarqués depuis
+`skills/agents/` par `seed::ensure_builtin_agent_skills` (jamais écrasés),
+injection budgétée dans `agent_system_prompt` (4 000 / 800 caractères),
+brouillon par `Engine::draft_agent_skill` (alias `reasoning.high`, aucune
+écriture). Un nouveau skill livré = un fichier dans `skills/agents/` **et**
+une ligne dans `BUILTIN_AGENT_SKILLS` (`crates/store/src/seed.rs`). Le
+champ `skills` (étiquettes) reste utilisé par l'orchestrateur.
 
 ## Style
 

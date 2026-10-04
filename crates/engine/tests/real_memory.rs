@@ -22,7 +22,7 @@ async fn extraction_reelle_par_ollama() {
     repo::projects::upsert(&db, &project).await.unwrap();
     let agent = Agent {
         id: AgentId::new(), project_id: project.id.clone(), name: "QA Spotly".into(), role: "Assurance qualité".into(),
-        system_prompt: String::new(), skills: vec![], tools: vec![], model_ref: "test".into(), archetype: Archetype::Qa, enabled: true,
+        system_prompt: String::new(), skills: vec![], tools: vec![], model_ref: "test".into(), archetype: Archetype::Qa, enabled: true, skill_slug: None, skill_notes: String::new(),
     };
     repo::agents::upsert(&db, &agent).await.unwrap();
     repo::memory::insert(&db, &MemoryEntry {

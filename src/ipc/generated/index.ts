@@ -2,6 +2,7 @@
 export type { Activity } from "./Activity";
 export type { Agent } from "./Agent";
 export type { AgentId } from "./AgentId";
+export type { AgentSkill } from "./AgentSkill";
 export type { AgentStatus } from "./AgentStatus";
 export type { AgentView } from "./AgentView";
 export type { AppSettings } from "./AppSettings";
@@ -42,6 +43,7 @@ export type { Schedule } from "./Schedule";
 export type { ScheduleId } from "./ScheduleId";
 export type { ScheduleOutcome } from "./ScheduleOutcome";
 export type { ScheduleTarget } from "./ScheduleTarget";
+export type { SkillOrigin } from "./SkillOrigin";
 export type { StepResolution } from "./StepResolution";
 export type { Task } from "./Task";
 export type { TaskBrief } from "./TaskBrief";

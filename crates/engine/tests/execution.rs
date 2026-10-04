@@ -50,7 +50,7 @@ async fn world(grants: &[(&str, ResourceScope, Mode)], agents: usize) -> World {
             tools: vec![],
             model_ref: "test".into(),
             archetype: Archetype::Dev,
-            enabled: true,
+            enabled: true, skill_slug: None, skill_notes: String::new(),
         };
         repo::agents::upsert(&db, &agent).await.unwrap();
         for (tool, scope, mode) in grants {

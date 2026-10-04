@@ -169,7 +169,12 @@ async fn approbations_idempotentes() {
 
 #[tokio::test]
 async fn permissions_par_defaut_restrictives() {
-    let db = seeded().await;
+    // Dossier personnel factice : les règles par défaut ne s'ancrent qu'à un
+    // dossier de projet existant, le test ne doit pas dépendre de la machine.
+    let home = std::env::temp_dir().join(format!("atelier-home-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(home.join("Desktop/Dev/Github/Spotly")).unwrap();
+    let db = Db::open_in_memory().await.unwrap();
+    seed::run_if_empty_in(&db, &home).await.unwrap();
     let spotly = repo::projects::list(&db).await.unwrap()
         .into_iter().find(|p| p.name == "Spotly").unwrap();
     let qa = repo::agents::list(&db).await.unwrap()
@@ -183,4 +188,36 @@ async fn permissions_par_defaut_restrictives() {
     assert_eq!(mode("fs.delete"), Some(Mode::Ask));
     // Aucune règle pour le réseau : c'est un refus (fail-closed).
     assert_eq!(mode("net.http"), None);
+}
+
+/// Une base créée avant les skills (migrations 1 à 4) se met à jour sans
+/// perte : agents conservés, colonnes ajoutées, skills livrés présents.
+#[tokio::test]
+async fn base_existante_mise_a_jour_pour_les_skills() {
+    use sqlx::migrate::Migrator;
+    use std::borrow::Cow;
+
+    let path = std::env::temp_dir().join(format!("atelier-maj-{}.db", uuid::Uuid::now_v7()));
+    {
+        let opts = sqlx::sqlite::SqliteConnectOptions::new().filename(&path).create_if_missing(true);
+        let pool = sqlx::SqlitePool::connect_with(opts).await.unwrap();
+        let mut old = Migrator::new(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations")).await.unwrap();
+        old.migrations = Cow::Owned(old.migrations.iter().filter(|m| m.version < 5).cloned().collect());
+        old.run(&pool).await.unwrap();
+        sqlx::query("INSERT INTO projects (id, name, created_at) VALUES ('p', 'Ancien', '2026-01-01T00:00:00Z')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO agents (id, project_id, name, role, created_at) VALUES ('a', 'p', 'Vétéran', 'QA', '2026-01-01T00:00:00Z')")
+            .execute(&pool).await.unwrap();
+        pool.close().await;
+    }
+
+    let db = Db::open(&path).await.unwrap();
+    seed::ensure_builtin_agent_skills(&db).await.unwrap();
+    let agent = repo::agents::get(&db, &AgentId("a".into())).await.unwrap();
+    assert_eq!(agent.name, "Vétéran");
+    assert_eq!(agent.skill_slug, None);
+    assert_eq!(agent.skill_notes, "");
+    let slugs: Vec<String> = repo::agent_skills::list(&db).await.unwrap().into_iter().map(|s| s.slug).collect();
+    assert!(slugs.contains(&"qa".to_string()) && slugs.contains(&"dev-front".to_string()), "{slugs:?}");
+    let _ = std::fs::remove_file(&path);
 }

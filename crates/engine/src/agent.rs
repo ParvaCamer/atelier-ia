@@ -29,6 +29,10 @@ const OBSERVATION_MAX: usize = 6_000;
 /// Messages récents gardés intacts ; les plus anciens sont tronqués pour
 /// que le contexte ne grossisse pas linéairement avec les étapes.
 const KEEP_RECENT: usize = 8;
+/// Budgets d'injection du skill de rôle et de la surcouche. Le prompt
+/// système est payé à chaque décision : un skill bavard coûte à chaque appel.
+pub const SKILL_BUDGET: usize = 4_000;
+pub const SKILL_NOTES_BUDGET: usize = 800;
 
 #[derive(Debug, Deserialize)]
 struct AgentAction {
@@ -213,6 +217,7 @@ impl Engine {
             out.push_str(&format!("Demande d'origine : « {request} »\n"));
         }
         out.push_str(&format!("Ton rôle : {}. Compétences : {}.\n", agent.role, agent.skills.join(", ")));
+        out.push_str(&skill_section(db, agent).await);
 
         // Mémoire : conventions et échecs connus d'abord, puis ce que la
         // recherche plein texte rapproche de la tâche.
@@ -259,6 +264,40 @@ impl Engine {
         ));
         Ok(out)
     }
+}
+
+/// « Ta méthode » (skill de rôle) puis « Spécificités de cet agent »
+/// (surcouche), chacun coupé à son budget. Sections omises si vides ; un
+/// slug qui ne correspond plus à aucun skill est ignoré sans faire échouer
+/// la tâche — l'agent travaille alors comme avant les skills.
+async fn skill_section(db: &atelier_store::Db, agent: &Agent) -> String {
+    let skill = match agent.skill_slug.as_deref() {
+        Some(slug) => match repo::agent_skills::get(db, slug).await {
+            Ok(found) => found,
+            Err(e) => {
+                tracing::warn!("lecture du skill « {slug} » impossible : {e}");
+                None
+            }
+        },
+        None => None,
+    };
+    let method = skill.map(|s| s.content.trim().to_string()).filter(|c| !c.is_empty());
+    let notes = Some(agent.skill_notes.trim()).filter(|n| !n.is_empty());
+
+    let mut out = String::new();
+    if method.is_some() || notes.is_some() {
+        out.push_str("\n## Ta méthode\n");
+    }
+    if let Some(method) = method {
+        out.push_str(&tail(&method, SKILL_BUDGET));
+        out.push('\n');
+    }
+    if let Some(notes) = notes {
+        out.push_str("\n### Spécificités de cet agent\n");
+        out.push_str(&tail(notes, SKILL_NOTES_BUDGET));
+        out.push('\n');
+    }
+    out
 }
 
 async fn wait_if_paused(paused: &mut watch::Receiver<bool>, cancel: &CancellationToken) -> Result<(), Failure> {

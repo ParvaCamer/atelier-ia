@@ -1,3 +1,4 @@
+pub mod agent_skills;
 pub mod agents;
 pub mod approvals;
 pub mod grants;

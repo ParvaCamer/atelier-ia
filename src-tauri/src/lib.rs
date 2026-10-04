@@ -40,6 +40,7 @@ pub fn run() {
                 }
                 seed::ensure_builtin_workflows(&db).await?;
                 seed::ensure_builtin_providers(&db).await?;
+                seed::ensure_builtin_agent_skills(&db).await?;
                 Engine::start(db).await
             })?;
 
@@ -91,6 +92,10 @@ pub fn run() {
             commands::config::get_settings,
             commands::config::save_settings,
             commands::config::tool_catalog,
+            commands::config::list_agent_skills,
+            commands::config::save_agent_skill,
+            commands::config::delete_agent_skill,
+            commands::config::draft_agent_skill,
             commands::phase4::list_runs,
             commands::phase4::run_detail,
             commands::phase4::list_memories,

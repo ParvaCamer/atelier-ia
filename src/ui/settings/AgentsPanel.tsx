@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Agent, AgentId, Archetype, Grant, Mode, Project, ResourceScope } from "../../ipc";
+import type { Agent, AgentId, AgentSkill, Archetype, Grant, Mode, Project, ResourceScope } from "../../ipc";
 import { api, type GrantPresetName } from "../../ipc";
 import { useConfig } from "../../state/config";
 import { useWorld } from "../../state/store";
@@ -20,6 +20,7 @@ const ARCHETYPES: { value: Archetype; label: string }[] = [
 const blank = (projectId: string): Agent => ({
   id: "" as AgentId, projectId, name: "", role: "", systemPrompt: "", skills: [],
   tools: ["fs.read", "fs.list"], modelRef: "reasoning.default", archetype: "dev", enabled: true,
+  skillSlug: null, skillNotes: "",
 });
 
 export function AgentsPanel() {
@@ -118,6 +119,10 @@ export function AgentsPanel() {
             <Field label="Compétences" wide hint="Séparées par des virgules. Servent à l'orchestrateur pour choisir l'agent.">
               <Tags key={draft.id || "new"} values={draft.skills} onChange={(skills) => patch({ skills })} placeholder="Kotlin, Jetpack Compose, tests" />
             </Field>
+            <RoleSkill key={draft.id || "new"} agent={draft} onPick={(skillSlug) => patch({ skillSlug })} />
+            <Field label="Spécificités de cet agent" wide hint="Quelques lignes propres à cet agent, injectées après son skill de rôle. Ne redis pas le métier : il est partagé par tous les projets.">
+              <Area rows={3} value={draft.skillNotes} onChange={(skillNotes) => patch({ skillNotes })} placeholder="Teste d'abord sur le plus petit écran pris en charge." />
+            </Field>
             <Field label="Outils qu'il peut demander" wide hint="Pouvoir demander n'est pas avoir le droit : ce sont les permissions qui tranchent.">
               <div className="checks">
                 {tools.map((t) => (
@@ -147,6 +152,122 @@ export function AgentsPanel() {
       ) : (
         <section className="split-detail empty">Aucun agent sélectionné.</section>
       )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ skill de rôle
+
+/** Budget d'injection du moteur (crates/engine/src/agent.rs) : affiché, pas appliqué ici. */
+const SKILL_BUDGET = 4000;
+
+/** Suggestion d'identifiant à partir du rôle ; le moteur valide le format. */
+const slugify = (s: string) =>
+  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+function RoleSkill({ agent, onPick }: { agent: Agent; onPick: (slug: string | null) => void }) {
+  const skills = useConfig((s) => s.skills);
+  const reloadSkills = useConfig((s) => s.reloadSkills);
+  const [editing, setEditing] = useState<AgentSkill | null>(null);
+  const [isNew, setIsNew] = useState(false);
+  const job = useJob();
+  const current = skills.find((s) => s.slug === agent.skillSlug);
+
+  const open = (skill: AgentSkill | null) => {
+    job.setError(null);
+    job.setOk(null);
+    setIsNew(!skill);
+    setEditing(skill ? { ...skill } : {
+      slug: slugify(agent.role), title: agent.role.trim(), content: "", origin: "user", updatedAt: new Date().toISOString(),
+    });
+  };
+  const edit = (p: Partial<AgentSkill>) => setEditing((e) => (e ? { ...e, ...p } : e));
+
+  const draft = async () => {
+    if (!editing) return;
+    const text = await job.run(
+      () => api.draftAgentSkill(agent.role, agent.projectId),
+      "Brouillon rédigé : relis-le et corrige-le avant d'enregistrer. Rien n'est enregistré pour l'instant.",
+    );
+    if (text !== undefined) edit({ content: text });
+  };
+
+  const save = async () => {
+    if (!editing) return;
+    const saved = await job.run(() => api.saveAgentSkill(editing));
+    if (!saved) return;
+    await reloadSkills();
+    setEditing(null);
+    const assign = agent.skillSlug !== saved.slug;
+    if (assign) onPick(saved.slug);
+    job.setOk(assign ? `Skill « ${saved.title} » enregistré — enregistre l'agent pour le lui attribuer.` : `Skill « ${saved.title} » enregistré.`);
+  };
+
+  const remove = async () => {
+    if (!editing) return;
+    const done = await job.run(() => api.deleteAgentSkill(editing.slug), "Skill supprimé.");
+    if (done === undefined) return;
+    await reloadSkills();
+    if (agent.skillSlug === editing.slug) onPick(null);
+    setEditing(null);
+  };
+
+  const length = editing ? editing.content.length : 0;
+
+  return (
+    <div className="field role-skill" data-wide="true">
+      <span className="field-label">Skill de rôle</span>
+      <div className="row">
+        <select
+          className="input" value={agent.skillSlug ?? ""} disabled={!!editing}
+          onChange={(e) => onPick(e.target.value || null)}
+        >
+          <option value="">Aucun — l'agent n'a que ses consignes</option>
+          {skills.map((s) => <option key={s.slug} value={s.slug}>{s.title} · {s.slug}</option>)}
+        </select>
+        {!editing && current && <button type="button" className="btn ghost" onClick={() => open(current)}>Modifier</button>}
+        {!editing && <button type="button" className="btn ghost" onClick={() => open(null)}>Nouveau skill…</button>}
+      </div>
+      <span className="field-hint">
+        Le métier, partagé par tous les agents du même rôle, quel que soit le projet. Il décrit une méthode :
+        il n'accorde aucun droit, ce sont les permissions qui tranchent.
+      </span>
+
+      {!editing && current && <pre className="skill-preview">{current.content}</pre>}
+
+      {editing && (
+        <div className="skill-editor">
+          <div className="form">
+            <Field label="Identifiant">
+              <Text mono value={editing.slug} disabled={!isNew} onChange={(slug) => edit({ slug })} placeholder="dev-front" />
+            </Field>
+            <Field label="Titre"><Text value={editing.title} onChange={(title) => edit({ title })} placeholder="Développeur frontend" /></Field>
+            <Field
+              label="Méthode (markdown)" wide
+              hint={
+                <span data-over={length > SKILL_BUDGET}>
+                  {length} / {SKILL_BUDGET} caractères injectés à chaque décision de l'agent
+                  {length > SKILL_BUDGET && " — au-delà, seule la fin du texte est injectée"}.
+                  {isNew && " « Rédiger un brouillon » demande au modèle reasoning.high une proposition à partir du rôle."}
+                </span>
+              }
+            >
+              <Area mono rows={12} value={editing.content} onChange={(content) => edit({ content })} placeholder={"# Rôle\n\n## Méthode\n\n1. …"} />
+            </Field>
+          </div>
+          <div className="actions">
+            <button type="button" className="btn primary" disabled={job.busy} onClick={save}>Enregistrer le skill</button>
+            {editing.content.trim()
+              ? <DangerButton label="Remplacer par un brouillon…" confirmLabel="Remplacer le texte" onConfirm={draft} disabled={job.busy || !agent.role.trim()} />
+              : <button type="button" className="btn ghost" disabled={job.busy || !agent.role.trim()} onClick={draft}>
+                  {job.busy ? "Rédaction…" : "Rédiger un brouillon…"}
+                </button>}
+            {!isNew && <DangerButton label="Supprimer le skill" confirmLabel="Confirmer" onConfirm={remove} disabled={job.busy} />}
+            <button type="button" className="btn ghost" disabled={job.busy} onClick={() => { setEditing(null); job.setError(null); job.setOk(null); }}>Fermer sans enregistrer</button>
+          </div>
+        </div>
+      )}
+      <Feedback error={job.error} ok={job.ok} />
     </div>
   );
 }

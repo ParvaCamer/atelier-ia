@@ -50,7 +50,16 @@ const AGENTS: Agent[] = ROSTER.map(([name, role, archetype, projectId], i) => ({
   id: `a${i}`, projectId, name, role, systemPrompt: "",
   skills: ["exemple", "hors-ligne"], tools: ["fs.read", "shell.exec"],
   modelRef: "reasoning.high", archetype, enabled: true,
+  skillSlug: archetype === "qa" ? "qa" : archetype === "dev" ? "dev-front" : null,
+  skillNotes: archetype === "qa" ? "Teste d'abord sur le plus petit écran pris en charge." : "",
 }));
+
+let SKILLS: Record<string, any>[] = [
+  { slug: "dev-front", title: "Développeur frontend", origin: "builtin", updatedAt: new Date().toISOString(),
+    content: "# Développeur frontend\n\n## Rôle\n\nTu réalises l'interface : composants, états d'affichage, styles.\n\n## Méthode\n\n1. Lis le code voisin avant d'écrire.\n2. Traite les quatre états de toute donnée distante." },
+  { slug: "qa", title: "Assurance qualité", origin: "builtin", updatedAt: new Date().toISOString(),
+    content: "# Assurance qualité\n\n## Rôle\n\nTu vérifies qu'un changement fait ce qu'il prétend. Tu ne corriges pas : tu constates, tu reproduis, tu rapportes.\n\n## Méthode\n\n1. Lis d'abord ce qui a changé.\n2. Lance les tests existants avant toute conclusion." },
+];
 
 /** Un exemplaire de chaque état, pour contrôler le rendu de tous les cas. */
 const STATES: [AgentStatus, Activity][] = [
@@ -242,6 +251,22 @@ export function installDevMock() {
         { id: "fs.write", description: "Écrit (ou remplace) un fichier texte du projet." },
         { id: "shell.exec", description: "Exécute une commande dans le répertoire du projet." },
       ];
+      case "list_agent_skills": return SKILLS;
+      case "save_agent_skill": {
+        const sk = { ...args.skill, origin: "user", updatedAt: new Date().toISOString() };
+        if (!/^[a-z0-9][a-z0-9-]*$/.test(sk.slug)) throw `identifiant de skill invalide « ${sk.slug} » : lettres minuscules, chiffres et « - » uniquement (ex. dev-front)`;
+        SKILLS = SKILLS.filter((x) => x.slug !== sk.slug).concat(sk);
+        return sk;
+      }
+      case "delete_agent_skill": {
+        const users = AGENTS.filter((a) => a.skillSlug === args.slug).map((a) => a.name);
+        if (users.length) throw `le skill « ${args.slug} » est utilisé par ${users.join(", ")} : attribue-leur un autre skill avant de le supprimer`;
+        SKILLS = SKILLS.filter((x) => x.slug !== args.slug);
+        return null;
+      }
+      case "draft_agent_skill":
+        await new Promise((r) => setTimeout(r, 900));
+        return `# ${args.role}\n\n## Rôle\n\nBrouillon simulé par le harnais pour « ${args.role} ».\n\n## Périmètre\n\n## Méthode\n\n1. …\n\n## Limites\n\n## Compte rendu\n`;
       case "list_projects": return PROJECTS;
       case "list_agents": return AGENTS;
       case "get_snapshot": return snapshot(++tick);

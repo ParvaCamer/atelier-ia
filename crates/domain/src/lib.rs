@@ -18,7 +18,7 @@ pub mod snapshot;
 pub mod task;
 pub mod workflow;
 
-pub use agent::{Activity, Agent, AgentStatus, Archetype};
+pub use agent::{Activity, Agent, AgentSkill, AgentStatus, Archetype, SkillOrigin};
 pub use approval::Approval;
 pub use config::{AppSettings, HealthState, ModelRoute, ProviderConfig, ProviderHealth, RouteTest, ToolInfo};
 pub use event::DomainEvent;

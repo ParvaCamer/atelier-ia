@@ -60,7 +60,7 @@ async fn world(replies: Vec<Value>, extraction_down: bool) -> World {
     let agent = Agent {
         id: AgentId::new(), project_id: project.id.clone(), name: "Agent mémo".into(), role: "Développeur".into(),
         system_prompt: String::new(), skills: vec![], tools: vec!["shell.exec".into()], model_ref: "test".into(),
-        archetype: Archetype::Dev, enabled: true,
+        archetype: Archetype::Dev, enabled: true, skill_slug: None, skill_notes: String::new(),
     };
     repo::agents::upsert(&db, &agent).await.unwrap();
     for program in ["echo", "sleep"] {

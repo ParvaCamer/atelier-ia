@@ -73,7 +73,7 @@ async fn add_project(db: &Db, name: &str, description: &str, agents: &[&str], gr
             tools: vec!["shell.exec".into(), "fs.read".into(), "fs.list".into()],
             model_ref: "test".into(),
             archetype: Archetype::Dev,
-            enabled: true,
+            enabled: true, skill_slug: None, skill_notes: String::new(),
         };
         repo::agents::upsert(db, &agent).await.unwrap();
         for (tool, program) in grants {
@@ -298,4 +298,55 @@ async fn aiguillage_toujours_incertain_echoue_sans_rien_creer() {
     let err = w.engine.submit_request("quel temps fera-t-il demain ?", None).await.unwrap_err().to_string();
     assert!(err.contains("impossible à déterminer"), "{err}");
     assert!(repo::runs::list_recent(w.engine.db(), 10).await.unwrap().is_empty());
+}
+
+async fn give_skill(w: &World, agent: &str, slug: Option<&str>, notes: &str) {
+    let mut a = repo::agents::get(w.engine.db(), &agent_named(w, agent).await).await.unwrap();
+    a.skill_slug = slug.map(Into::into);
+    a.skill_notes = notes.into();
+    w.engine.save_agent(a).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn skill_de_role_puis_surcouche_dans_le_prompt() {
+    let finish = || json!({"thought": "ok", "action": "finish", "summary": "fait"});
+    let w = world(vec![finish(), finish(), finish()]).await;
+    let skill = |content: String| AgentSkill {
+        slug: "verif".into(), title: "Vérificateur".into(), content,
+        origin: SkillOrigin::User, updated_at: chrono::Utc::now(),
+    };
+
+    // 1. Skill et surcouche injectés, dans cet ordre, après le rôle.
+    w.engine.save_agent_skill(skill("MÉTHODE-DU-RÔLE : reproduire avant de signaler.".into())).await.unwrap();
+    give_skill(&w, "Agent 0", Some("verif"), "NOTE-DE-L-AGENT : Android 10 d'abord.").await;
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Completed).await;
+    let system = w.script.seen()[0].system.clone();
+    let at = |needle: &str| system.find(needle).unwrap_or_else(|| panic!("« {needle} » absent du prompt :\n{system}"));
+    assert!(at("Ton rôle") < at("## Ta méthode"));
+    assert!(at("## Ta méthode") < at("MÉTHODE-DU-RÔLE"));
+    assert!(at("MÉTHODE-DU-RÔLE") < at("### Spécificités de cet agent"));
+    assert!(at("### Spécificités de cet agent") < at("NOTE-DE-L-AGENT"));
+
+    // 2. Un skill trop long est coupé au budget : le début disparaît.
+    let long = format!("DÉBUT-DU-SKILL {} FIN-DU-SKILL", "x".repeat(6_000));
+    w.engine.save_agent_skill(skill(long)).await.unwrap();
+    give_skill(&w, "Agent 0", Some("verif"), "").await;
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Completed).await;
+    let system = w.script.seen()[1].system.clone();
+    assert!(system.contains("FIN-DU-SKILL") && !system.contains("DÉBUT-DU-SKILL"), "skill non coupé au budget");
+    assert!(system.contains("caractères omis"));
+    assert!(!system.contains("### Spécificités"), "pas de titre orphelin sans surcouche");
+    let method = &system[system.find("## Ta méthode").unwrap()..system.find("## Ce que l'on sait").or(system.find("## Outils")).unwrap()];
+    assert!(method.chars().count() < atelier_engine::agent::SKILL_BUDGET + 200, "section de {} caractères", method.chars().count());
+
+    // 3. Slug orphelin (ligne disparue malgré la clé étrangère, base
+    //    réparée à la main…) : la tâche s'exécute quand même, sans section.
+    sqlx::query("PRAGMA foreign_keys = OFF").execute(w.engine.db().pool()).await.unwrap();
+    sqlx::query("DELETE FROM agent_skills WHERE slug = 'verif'").execute(w.engine.db().pool()).await.unwrap();
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Completed).await;
+    let system = w.script.seen()[2].system.clone();
+    assert!(!system.contains("## Ta méthode"), "aucune section pour un skill introuvable");
 }

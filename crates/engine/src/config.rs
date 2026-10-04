@@ -19,6 +19,27 @@ use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 const SETTINGS_KEY: &str = "app";
+
+/// Taille maximale d'un brouillon de skill, alignée sur le budget d'injection.
+const DRAFT_MAX_CHARS: usize = 4_000;
+/// Au-delà, un skill enregistré ne serait de toute façon injecté qu'en partie.
+const SKILL_MAX_CHARS: usize = 12_000;
+
+const DRAFT_SKILL_PROMPT: &str = "Tu rédiges le skill de rôle d'un agent d'Atelier, une application \
+d'orchestration d'agents IA. Un skill de rôle décrit le MÉTIER, partagé par tous les projets.\n\n\
+Format : markdown, en français, sans bloc de code englobant, sans préambule ni conclusion. \
+Sections, dans cet ordre :\n\
+# <titre du rôle>\n\
+## Rôle — ce que fait ce métier, en deux ou trois phrases.\n\
+## Périmètre — ce qui relève de lui, ce qui n'en relève pas.\n\
+## Méthode — étapes numérotées, concrètes et vérifiables.\n\
+## Limites — ce qu'il s'interdit.\n\
+## Compte rendu — ce que contient son rapport de fin de tâche.\n\n\
+Règles impératives :\n\
+- Le skill décrit une méthode, jamais des permissions : n'invente aucun outil, aucun droit, \
+aucun accès. Les droits sont accordés ailleurs, par l'utilisateur.\n\
+- Pas de détail propre à un projet précis (noms de fichiers, technologies imposées).\n\
+- Moins de 3 500 caractères : ce texte est relu à chaque étape de chaque tâche.";
 pub const DEFAULT_OLLAMA_URL: &str = "http://127.0.0.1:11434";
 
 /// Alias appelés directement par l'orchestrateur : modifiables, pas supprimables.
@@ -186,6 +207,13 @@ impl Engine {
 
         // Outils inconnus ignorés plutôt que refusés : d'anciennes versions ont
         // pu en enregistrer qui n'existent plus, l'utilisateur n'y peut rien.
+        let skill_slug = draft.skill_slug.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+        if let Some(slug) = &skill_slug {
+            if repo::agent_skills::get(db, slug).await?.is_none() {
+                anyhow::bail!("skill de rôle « {slug} » inconnu : choisis-en un dans la liste ou crée-le avant de l'attribuer");
+            }
+        }
+
         let tools = dedupe(draft.tools.iter().map(|t| t.trim().to_string()).filter(|t| self.tools.get(t).is_some()));
         let skills = dedupe(draft.skills.iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()));
 
@@ -200,6 +228,8 @@ impl Engine {
             model_ref: draft.model_ref,
             archetype: draft.archetype,
             enabled: draft.enabled,
+            skill_slug,
+            skill_notes: draft.skill_notes.trim().to_string(),
         };
         repo::agents::upsert(db, &agent).await?;
 
@@ -238,6 +268,93 @@ impl Engine {
 
     async fn agent_is_busy(&self, id: &AgentId) -> bool {
         self.running.lock().await.values().any(|r| &r.agent_id == id)
+    }
+
+    // =================================================================
+    // Skills de rôle
+    //
+    // Seul l'utilisateur écrit ici, depuis les réglages. Le runtime d'agent
+    // ne fait que lire : un contrat de comportement qui changerait pendant
+    // l'exécution rendrait les tâches passées inexplicables.
+    // =================================================================
+
+    pub async fn list_agent_skills(&self) -> anyhow::Result<Vec<AgentSkill>> {
+        Ok(repo::agent_skills::list(self.db()).await?)
+    }
+
+    pub async fn save_agent_skill(&self, draft: AgentSkill) -> anyhow::Result<AgentSkill> {
+        let slug = draft.slug.trim().to_lowercase();
+        if slug.is_empty() || !slug.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') || slug.starts_with('-') {
+            anyhow::bail!("identifiant de skill invalide « {} » : lettres minuscules, chiffres et « - » uniquement (ex. dev-front)", draft.slug.trim());
+        }
+        let title = draft.title.trim().to_string();
+        if title.is_empty() {
+            anyhow::bail!("le titre du skill « {slug} » est obligatoire");
+        }
+        let content = strip_code_fence(draft.content.trim()).to_string();
+        if content.is_empty() {
+            anyhow::bail!("le skill « {slug} » est vide : décris la méthode du rôle avant d'enregistrer");
+        }
+        if content.chars().count() > SKILL_MAX_CHARS {
+            anyhow::bail!(
+                "le skill « {slug} » dépasse {SKILL_MAX_CHARS} caractères : raccourcis-le, seuls ses {} derniers caractères seraient injectés dans le prompt",
+                crate::agent::SKILL_BUDGET
+            );
+        }
+
+        // Un skill livré reste « livré » tant que son texte n'a pas changé.
+        let existing = repo::agent_skills::get(self.db(), &slug).await?;
+        let origin = match &existing {
+            Some(e) if e.origin == SkillOrigin::Builtin && e.title == title && e.content == content => SkillOrigin::Builtin,
+            _ => SkillOrigin::User,
+        };
+        let skill = AgentSkill { slug, title, content, origin, updated_at: chrono::Utc::now() };
+        repo::agent_skills::upsert(self.db(), &skill).await?;
+        self.bus().publish(DomainEvent::ConfigChanged);
+        Ok(skill)
+    }
+
+    pub async fn delete_agent_skill(&self, slug: &str) -> anyhow::Result<()> {
+        let users: Vec<String> = repo::agent_skills::used_by(self.db(), slug).await?.into_iter().map(|a| a.name).collect();
+        if !users.is_empty() {
+            anyhow::bail!("le skill « {slug} » est utilisé par {} : attribue-leur un autre skill avant de le supprimer", users.join(", "));
+        }
+        repo::agent_skills::delete(self.db(), slug).await?;
+        self.bus().publish(DomainEvent::ConfigChanged);
+        Ok(())
+    }
+
+    /// Brouillon de skill de rôle rédigé par le modèle. **N'écrit rien** :
+    /// le texte revient à l'interface, l'utilisateur le relit et l'enregistre
+    /// lui-même. Un appel au modèle par demande, jamais pendant le travail.
+    pub async fn draft_agent_skill(&self, role: &str, project_id: &ProjectId) -> anyhow::Result<String> {
+        let role = role.trim();
+        if role.is_empty() {
+            anyhow::bail!("indique le rôle de l'agent avant de demander un brouillon");
+        }
+        let project = repo::projects::get(self.db(), project_id).await?;
+        let request = CompletionRequest {
+            system: DRAFT_SKILL_PROMPT.into(),
+            messages: vec![Message::user(format!(
+                "Rôle : {role}\nExemple de projet où ce rôle intervient : {} — {}\n\n\
+                 Rédige le skill de ce rôle. Il doit rester valable pour d'autres projets : \
+                 ne cite le projet que pour situer le métier.",
+                project.name, project.description
+            ))],
+            schema: None,
+            max_tokens: 2_048,
+            temperature: 0.3,
+        };
+        let completion = self
+            .providers()
+            .complete("reasoning.high", request, &CancellationToken::new())
+            .await
+            .map_err(|e| anyhow::anyhow!("rédaction du brouillon impossible : {e}"))?;
+        let text = strip_code_fence(completion.text.trim()).trim();
+        if text.is_empty() {
+            anyhow::bail!("le modèle a renvoyé un brouillon vide pour le rôle « {role} » : réessaie, ou rédige le skill à la main");
+        }
+        Ok(head(text, DRAFT_MAX_CHARS))
     }
 
     // =================================================================
@@ -865,4 +982,22 @@ fn cycle_members(steps: &[WorkflowStep]) -> Vec<usize> {
             false
         })
         .collect()
+}
+
+/// Retire un bloc de code qui engloberait tout le texte (```markdown … ```).
+fn strip_code_fence(text: &str) -> &str {
+    let Some(rest) = text.strip_prefix("```") else { return text };
+    let Some(body) = rest.trim_end().strip_suffix("```") else { return text };
+    // La première ligne porte l'éventuel langage annoncé.
+    match body.split_once('\n') {
+        Some((lang, inner)) if !lang.contains(char::is_whitespace) || lang.trim().is_empty() => inner.trim(),
+        _ => body.trim(),
+    }
+}
+
+fn head(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    text.chars().take(max).collect::<String>().trim_end().to_string()
 }

@@ -8,14 +8,16 @@ use crate::{db::Db, error::Result, repo};
 use atelier_domain::*;
 use chrono::Utc;
 
-fn home() -> std::path::PathBuf {
-    std::env::var("HOME").map(std::path::PathBuf::from).unwrap_or_default()
+use std::path::{Path, PathBuf};
+
+fn home() -> PathBuf {
+    std::env::var("HOME").map(PathBuf::from).unwrap_or_default()
 }
 
 /// On ne pointe que vers des dossiers qui existent réellement : un chemin
 /// fantôme donnerait des agents incapables de travailler, sans explication.
-fn path_if_exists(rel: &str) -> Option<String> {
-    let p = home().join(rel);
+fn path_if_exists(home: &Path, rel: &str) -> Option<String> {
+    let p = home.join(rel);
     p.is_dir().then(|| p.to_string_lossy().to_string())
 }
 
@@ -82,6 +84,12 @@ fn default_grants(agent: &Agent, project: &Project) -> Vec<Grant> {
 }
 
 pub async fn run_if_empty(db: &Db) -> Result<bool> {
+    run_if_empty_in(db, &home()).await
+}
+
+/// Comme `run_if_empty`, avec un dossier personnel explicite : les tests ne
+/// doivent pas dépendre des dossiers présents sur la machine qui les lance.
+pub async fn run_if_empty_in(db: &Db, home: &Path) -> Result<bool> {
     if !repo::projects::list(db).await?.is_empty() {
         return Ok(false);
     }
@@ -92,7 +100,7 @@ pub async fn run_if_empty(db: &Db) -> Result<bool> {
                 id: ProjectId::new(),
                 name: "Spotly".into(),
                 description: "Application Android — découverte de bars et prix des boissons".into(),
-                root_path: path_if_exists("Desktop/Dev/Github/Spotly"),
+                root_path: path_if_exists(home, "Desktop/Dev/Github/Spotly"),
                 git_remote: None,
                 color: "#5eead4".into(),
                 zone: Zone::new(-17.0, -12.0, 28.0, 20.0),
@@ -118,7 +126,7 @@ pub async fn run_if_empty(db: &Db) -> Result<bool> {
                 id: ProjectId::new(),
                 name: "Agency".into(),
                 description: "Projets clients de l'agence".into(),
-                root_path: path_if_exists("Desktop/Dev/Github"),
+                root_path: path_if_exists(home, "Desktop/Dev/Github"),
                 git_remote: None,
                 color: "#a78bfa".into(),
                 zone: Zone::new(17.0, -12.0, 28.0, 20.0),
@@ -200,6 +208,8 @@ pub async fn run_if_empty(db: &Db) -> Result<bool> {
                 model_ref: spec.model_ref.into(),
                 archetype: spec.archetype,
                 enabled: true,
+                skill_slug: None,
+                skill_notes: String::new(),
             };
             let agent = Agent { tools: agent_tools(&spec), ..agent };
             repo::agents::upsert(db, &agent).await?;
@@ -407,6 +417,39 @@ pub async fn ensure_builtin_providers(db: &Db) -> Result<()> {
         route("summarize.fast", "ollama", "llama3.2", 2_048, 0.2, Some("reasoning.default")),
     ] {
         insert_route_if_missing(db, &r).await?;
+    }
+    Ok(())
+}
+
+/// Skills de rôle livrés avec l'application. Embarqués dans le binaire :
+/// l'application empaquetée n'a pas le dépôt à côté d'elle.
+const BUILTIN_AGENT_SKILLS: &[(&str, &str)] = &[
+    ("dev-front", include_str!("../../../skills/agents/dev-front.md")),
+    ("qa", include_str!("../../../skills/agents/qa.md")),
+];
+
+/// Titre d'un skill : son premier titre markdown de niveau 1.
+fn skill_title(slug: &str, content: &str) -> String {
+    content
+        .lines()
+        .find_map(|l| l.strip_prefix("# "))
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| slug.to_string())
+}
+
+/// Skills de rôle livrés, ajoutés **seulement si leur slug est absent** :
+/// une version modifiée par l'utilisateur n'est jamais écrasée.
+pub async fn ensure_builtin_agent_skills(db: &Db) -> Result<()> {
+    for (slug, content) in BUILTIN_AGENT_SKILLS {
+        let skill = AgentSkill {
+            slug: slug.to_string(),
+            title: skill_title(slug, content),
+            content: content.trim().to_string(),
+            origin: SkillOrigin::Builtin,
+            updated_at: Utc::now(),
+        };
+        repo::agent_skills::insert_if_missing(db, &skill).await?;
     }
     Ok(())
 }

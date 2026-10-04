@@ -41,7 +41,7 @@ async fn demande_reelle_de_bout_en_bout() {
         tools: vec!["fs.list".into(), "fs.read".into()],
         model_ref: "reasoning.default".into(),
         archetype: Archetype::Assistant,
-        enabled: true,
+        enabled: true, skill_slug: None, skill_notes: String::new(),
     };
     repo::agents::upsert(&db, &agent).await.unwrap();
     for tool in ["fs.list", "fs.read"] {
