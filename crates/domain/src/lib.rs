@@ -16,6 +16,7 @@ pub mod project;
 pub mod schedule;
 pub mod snapshot;
 pub mod task;
+pub mod todo;
 pub mod workflow;
 
 pub use agent::{Activity, Agent, AgentSkill, AgentStatus, Archetype, SkillOrigin};
@@ -35,6 +36,7 @@ pub use snapshot::{
     AgentView, OrchestratorStatus, OrchestratorView, RunStepView, RunView, TaskBrief, WorldSnapshot,
 };
 pub use task::{Task, TaskControl, TaskStatus};
+pub use todo::{Todo, TodoAuthor, TodoStatus};
 pub use workflow::{
     IssueLevel, Run, RunStatus, StepResolution, Trigger, Workflow, WorkflowCheck, WorkflowIssue, WorkflowStep,
 };

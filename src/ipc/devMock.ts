@@ -26,6 +26,11 @@ const PROJECTS: Project[] = [
     color: "#fbbf24", zone: { x: -17, z: 12, width: 28, depth: 20 }, archived: false },
   { id: "p4", name: "Infrastructure", description: "", rootPath: null, gitRemote: null,
     color: "#f87171", zone: { x: 17, z: 12, width: 28, depth: 20 }, archived: false },
+  // Cinquième projet, comme dans l'application réelle : la zone part sur une
+  // troisième rangée, loin du centre — c'est là que se cachent les bugs de
+  // cadrage et de sélection.
+  { id: "p5", name: "Studio", description: "", rootPath: null, gitRemote: null,
+    color: "#f472b6", zone: { x: -17, z: 36, width: 28, depth: 20 }, archived: false },
 ];
 
 const ROSTER: [string, string, Agent["archetype"], string][] = [
@@ -45,6 +50,9 @@ const ROSTER: [string, string, Agent["archetype"], string][] = [
   ["Automation Agent", "Automatisation", "ops", "p3"],
   ["Ops Agent", "Ingénieur système", "ops", "p4"],
   ["Monitoring Agent", "Supervision", "ops", "p4"],
+  ["Direction artistique Studio", "Direction artistique", "designer", "p5"],
+  ["Motion designer Studio", "Motion designer", "designer", "p5"],
+  ["Rédaction Studio", "Rédaction", "marketing", "p5"],
 ];
 
 const AGENTS: Agent[] = ROSTER.map(([name, role, archetype, projectId], i) => ({
@@ -174,7 +182,10 @@ function mockCheck(w: any) {
  */
 const ORCHESTRATOR = () => {
   const phases = ["idle", "routing", "planning", "supervising"] as const;
-  const status = phases[Math.floor(Date.now() / 6000) % phases.length];
+  // `window.__orchestratorStatus` fige un état depuis la console : sa ronde
+  // ne se voit qu'au repos, que le cycle ci-dessous interrompt toutes les 6 s.
+  const forced = (window as unknown as { __orchestratorStatus?: (typeof phases)[number] }).__orchestratorStatus;
+  const status = forced ?? phases[Math.floor(Date.now() / 6000) % phases.length];
   return {
     status,
     projectId: status === "idle" || status === "routing" ? null : "p1",
@@ -210,7 +221,44 @@ let WATCHES: Record<string, any>[] = [
     lastRunAt: iso(30), lastRunId: "r2", lastOutcome: "launched", lastError: null, lastTrigger: "app/src/main/ContactScreen.kt (+2)", createdAt: iso(9000) },
 ];
 
+/* Tableau de l'orchestrateur : une file qui avance toute seule, pour voir
+   les cartes changer d'état. La validation réelle vit dans le moteur. */
+let TODOS: Record<string, any>[] = [
+  { id: "td1", text: "Supprimer le code mort du module paiement", projectId: "p1", author: { kind: "agent", agentId: "a0" },
+    status: "proposed", depth: 0, runId: null, note: null, createdAt: iso(20), updatedAt: iso(20) },
+  { id: "td2", text: "Mettre à jour les dépendances de Spotly", projectId: "p1", author: { kind: "user" },
+    status: "running", depth: 0, runId: "r-live", note: null, createdAt: iso(15), updatedAt: iso(3) },
+  { id: "td3", text: "Ajouter un test sur la validation de l'e-mail", projectId: "p1", author: { kind: "orchestrator" },
+    status: "queued", depth: 1, runId: null, note: null, createdAt: iso(4), updatedAt: iso(4) },
+  { id: "td4", text: "Audit SEO de la page d'accueil", projectId: "p2", author: { kind: "user" },
+    status: "done", depth: 0, runId: "r2", note: null, createdAt: iso(90), updatedAt: iso(60) },
+  { id: "td5", text: "Publier la version 3 sur le store", projectId: "p1", author: { kind: "agent", agentId: "a0" },
+    status: "rejected", depth: 0, runId: null, note: "refusée par l'orchestrateur : publier exige l'accord d'un humain", createdAt: iso(200), updatedAt: iso(190) },
+];
+const OPEN_TODO = ["proposed", "queued", "planning", "running"];
+const todosChanged = () => void emit("engine:event", { type: "todosChanged" });
+/** Fait avancer la file comme le ferait l'orchestrateur : une tâche à la fois. */
+function advanceTodos() {
+  const now = new Date().toISOString();
+  const planning = TODOS.find((t) => t.status === "planning");
+  if (planning) {
+    Object.assign(planning, { status: "running", runId: "r-mock", updatedAt: now });
+    return todosChanged();
+  }
+  const running = TODOS.find((t) => t.status === "running" && t.runId === "r-mock");
+  if (running && Date.now() - Date.parse(running.updatedAt) > 12_000) {
+    Object.assign(running, { status: "done", updatedAt: now });
+    return todosChanged();
+  }
+  const next = TODOS.find((t) => t.status === "queued");
+  if (next && !running) {
+    Object.assign(next, { status: "planning", updatedAt: now });
+    todosChanged();
+  }
+}
+
 export function installDevMock() {
+  setInterval(advanceTodos, 4000);
   let tick = 0;
   // Le snapshot est poussé comme le ferait le moteur : l'exécution simulée avance.
   // Quand une étape se débloque, chacune de ses dépendances lui passe le relais.
@@ -410,6 +458,39 @@ export function installDevMock() {
       case "draft_agent_skill":
         await new Promise((r) => setTimeout(r, 900));
         return `# ${args.role}\n\n## Rôle\n\nBrouillon simulé par le harnais pour « ${args.role} ».\n\n## Périmètre\n\n## Méthode\n\n1. …\n\n## Limites\n\n## Compte rendu\n`;
+      case "list_todos":
+        return [...TODOS.filter((t) => OPEN_TODO.includes(t.status)),
+          ...TODOS.filter((t) => !OPEN_TODO.includes(t.status)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))];
+      case "add_todo": {
+        const text = String(args.text ?? "").trim();
+        if (!text) throw "la tâche est vide";
+        if (text.length > 500) throw `la tâche fait ${text.length} caractères, maximum 500 : résume-la`;
+        const norm = (x: string) => x.split(/\s+/).join(" ").toLowerCase();
+        if (TODOS.some((t) => OPEN_TODO.includes(t.status) && t.projectId === (args.projectId ?? null) && norm(t.text) === norm(text))) {
+          throw `« ${text} » est déjà au tableau`;
+        }
+        const now = new Date().toISOString();
+        const todo = { id: `td${Date.now()}`, text, projectId: args.projectId ?? null, author: { kind: "user" },
+          status: "queued", depth: 0, runId: null, note: null, createdAt: now, updatedAt: now };
+        TODOS.push(todo);
+        todosChanged();
+        return todo;
+      }
+      case "decide_todo": {
+        const todo = TODOS.find((t) => t.id === args.todoId)!;
+        if (todo.status !== "proposed") throw `« ${todo.text} » n'attend pas de validation`;
+        Object.assign(todo, args.accept ? { status: "queued", note: "validée par toi" } : { status: "rejected", note: "refusée par toi" },
+          { updatedAt: new Date().toISOString() });
+        todosChanged();
+        return todo;
+      }
+      case "cancel_todo": {
+        const todo = TODOS.find((t) => t.id === args.todoId)!;
+        if (!["proposed", "queued"].includes(todo.status)) throw `« ${todo.text} » est déjà lancée : annule son run depuis l'historique`;
+        Object.assign(todo, { status: "cancelled", note: "retirée par toi", updatedAt: new Date().toISOString() });
+        todosChanged();
+        return todo;
+      }
       case "list_projects": return PROJECTS;
       case "list_agents": return AGENTS;
       case "get_snapshot": return snapshot(++tick);

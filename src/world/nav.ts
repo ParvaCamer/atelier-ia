@@ -54,7 +54,17 @@ export function nextWaypoint(from: P, to: P, obstacles: readonly Box[], margin =
   // Coin atteignable en ligne droite (sinon on prendrait le pire), le moins coûteux.
   const usable = ahead.filter((c) => !obstacles.some((b) => !inside(b, from) && crosses(b, from, c)));
   const pool = usable.length ? usable : ahead.length ? ahead : corners;
-  return pool.reduce((best, c) => (dist(from, c) + dist(c, to) < dist(from, best) + dist(best, to) ? c : best));
+  // Reste du trajet depuis un coin : si l'obstacle barre encore la route,
+  // il faudra passer par un second coin. Sans ce regard en avant, le coin
+  // d'où l'on vient paraît toujours le moins cher — en ligne droite, à
+  // travers l'obstacle — et l'on oscille sur place devant une longue
+  // plateforme.
+  const rest = (c: P) => {
+    if (!crosses(first, c, to)) return dist(c, to);
+    return Math.min(...corners.filter((k) => k !== c && !crosses(first, c, k)).map((k) => dist(c, k) + dist(k, to)));
+  };
+  const cost = (c: P) => dist(from, c) + rest(c);
+  return pool.reduce((best, c) => (cost(c) < cost(best) ? c : best));
 }
 
 const centerOf = (b: Box): P => ({ x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2 });

@@ -8,6 +8,7 @@
 //! proprement — jamais d'exécution d'un plan non validé.
 
 use crate::launch::topological_order;
+use crate::todos::MAX_FOLLOW_UPS;
 use crate::Engine;
 use atelier_domain::*;
 use atelier_providers::{CompletionRequest, Message};
@@ -108,6 +109,8 @@ struct Plan {
     reasoning: String,
     #[serde(default)]
     steps: Vec<PlanStep>,
+    #[serde(default)]
+    follow_ups: Vec<String>,
 }
 
 enum Resolved {
@@ -138,6 +141,11 @@ fn plan_schema() -> Value {
                     },
                     "required": ["key", "title", "instruction", "agent", "depends_on"]
                 }
+            },
+            "follow_ups": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Travaux distincts de la demande, repérés en planifiant, à faire ensuite. Souvent vide."
             }
         },
         "required": ["decision", "title", "reasoning", "steps"]
@@ -146,7 +154,13 @@ fn plan_schema() -> Value {
 
 impl Engine {
     pub async fn submit_request(&self, text: &str, project_hint: Option<&ProjectId>) -> anyhow::Result<RunId> {
-        let out = self.plan_request(text, project_hint).await;
+        self.submit_request_at(text, project_hint, 0).await
+    }
+
+    /// `depth` : génération de la demande au tableau (0 = posée par une
+    /// personne). Les suites que le plan propose prennent `depth + 1`.
+    pub(crate) async fn submit_request_at(&self, text: &str, project_hint: Option<&ProjectId>, depth: u32) -> anyhow::Result<RunId> {
+        let out = self.plan_request(text, project_hint, depth).await;
         // Un échec laisse l'orchestrateur au repos : sans ça, il resterait
         // figé « en planification » jusqu'à la demande suivante.
         if out.is_err() {
@@ -155,7 +169,7 @@ impl Engine {
         out
     }
 
-    async fn plan_request(&self, text: &str, project_hint: Option<&ProjectId>) -> anyhow::Result<RunId> {
+    async fn plan_request(&self, text: &str, project_hint: Option<&ProjectId>, depth: u32) -> anyhow::Result<RunId> {
         let text = text.trim();
         if text.is_empty() {
             anyhow::bail!("demande vide");
@@ -219,9 +233,9 @@ impl Engine {
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("l'orchestrateur n'a pas produit de plan structuré"))?;
 
-            let validated = serde_json::from_value::<Plan>(raw.clone())
-                .map_err(|e| format!("structure incorrecte : {e}"))
-                .and_then(|plan| validate(plan, text, &agents, &workflows));
+            let parsed = serde_json::from_value::<Plan>(raw.clone()).map_err(|e| format!("structure incorrecte : {e}"));
+            let follow_ups: Vec<String> = parsed.as_ref().map(|p| p.follow_ups.clone()).unwrap_or_default();
+            let validated = parsed.and_then(|plan| validate(plan, text, &agents, &workflows));
 
             match validated {
                 Ok((resolved, reasoning)) => {
@@ -243,6 +257,11 @@ impl Engine {
                         }
                     };
                     repo::usage::attach_to_run(self.db(), &spent, &run).await?;
+                    // Les suites ne sont posées qu'une fois le run créé : un
+                    // plan rejeté n'en laisse aucune derrière lui.
+                    for follow_up in follow_ups.iter().filter(|f| !f.trim().is_empty()).take(MAX_FOLLOW_UPS) {
+                        self.add_follow_up(follow_up, &project.id, depth + 1).await;
+                    }
                     self.set_orchestrator(
                         OrchestratorStatus::Supervising,
                         Some(project.id.clone()),
@@ -364,7 +383,10 @@ fn planner_prompt(project: &Project, agents: &[Agent], workflows: &[Workflow]) -
          5. Commandes : ni pipe, ni redirection, ni `;`, ni `&&`.\n\
          6. Parallélise les étapes indépendantes via depends_on ; clés courtes en snake_case.\n\
          7. requires_approval = true avant toute étape irréversible ou qui publie quelque chose.\n\
-         8. instruction : ce que l'agent doit accomplir et à quoi il saura que c'est terminé.",
+         8. instruction : ce que l'agent doit accomplir et à quoi il saura que c'est terminé.\n\
+         9. follow_ups : au plus {MAX_FOLLOW_UPS} travaux DISTINCTS de la demande, repérés en planifiant, qui \
+            mériteraient d'être faits ensuite. Chacun sera posé au tableau et exécuté automatiquement : \
+            laisse la liste vide dans le doute, et n'y mets jamais une partie de la demande elle-même.",
         project.name,
         project.description,
         project.root_path.as_deref().unwrap_or("aucun : les agents n'ont pas accès aux fichiers"),

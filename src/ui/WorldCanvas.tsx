@@ -10,11 +10,14 @@ import { WorldRenderer, type ViewMode } from "../world/WorldRenderer";
 import { worldHandle } from "../world/handle";
 import { AgentPopover } from "./AgentPopover";
 import { Approvals, NoticeToast } from "./Approvals";
+import { TodoBoard } from "./TodoBoard";
+import { useTodos } from "../state/todos";
 
 export function WorldCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [world, setWorld] = useState<WorldRenderer | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
+  const [overBoard, setOverBoard] = useState(false);
   const [mode, setMode] = useState<ViewMode>("aerial");
 
   const select = useWorld((s) => s.select);
@@ -36,6 +39,9 @@ export function WorldCanvas() {
       },
       onHover: setHovered,
       onModeChange: setMode,
+      // Le tableau planté à côté de l'orchestrateur s'ouvre d'un clic.
+      onPickBoard: () => useTodos.getState().show(),
+      onHoverBoard: setOverBoard,
     });
     setWorld(renderer);
     worldHandle.set(renderer);
@@ -48,8 +54,8 @@ export function WorldCanvas() {
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    canvasRef.current.style.cursor = hovered ? "pointer" : "default";
-  }, [hovered]);
+    canvasRef.current.style.cursor = hovered || overBoard ? "pointer" : "default";
+  }, [hovered, overBoard]);
 
   // La popover suit l'agent survolé, ou le sélectionné à défaut.
   const shownId = hovered ?? selected;
@@ -69,6 +75,7 @@ export function WorldCanvas() {
         />
       )}
       <Approvals />
+      <TodoBoard />
       <NoticeToast />
       <div className="view-switch" role="group" aria-label="Vue du monde">
         <button data-active={mode === "aerial"} onClick={() => world?.setMode("aerial")} title="Vue d'ensemble, de haut (V)">Vue aérienne</button>

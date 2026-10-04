@@ -12,6 +12,7 @@ import type { Agent, Project } from "../ipc";
 import type { StationKind } from "./palette";
 import type { Box } from "./nav";
 import { FAMILY, MACHINE_SIZE, type MachineFamily } from "./machines";
+import { signWidth } from "./signs";
 
 export interface Slot {
   /** Position de repos, devant le poste. */
@@ -52,6 +53,11 @@ export interface ZoneLayout {
   obstacles: Box[];
   /** Limites praticables de la plateforme. */
   bounds: Box;
+  /**
+   * Enseigne du projet, plantée dans l'herbe devant le bord avant, côté
+   * gauche ; sa face regarde vers +z.
+   */
+  sign: { x: number; z: number; width: number; box: Box };
 }
 
 const SLOT_W = 6.2;
@@ -110,6 +116,12 @@ export function buildLayout(projects: Project[], agents: Agent[]): Map<string, Z
       obstacles.push(box(f.x, f.z, turned ? size[1] : size[0], turned ? size[0] : size[1]));
     }
 
+    const signW = signWidth(project.name);
+    const signX = x - width / 2 + 1.4 + signW / 2;
+    const signZ = z + depth / 2 + 0.75;
+    const sign = { x: signX, z: signZ, width: signW, box: box(signX, signZ, signW + 0.3, 0.3) };
+    obstacles.push(sign.box);
+
     out.set(project.id, {
       project,
       center,
@@ -121,6 +133,7 @@ export function buildLayout(projects: Project[], agents: Agent[]): Map<string, Z
       furniture,
       obstacles,
       bounds: box(x, z, width, depth, -0.6),
+      sign,
     });
   }
 

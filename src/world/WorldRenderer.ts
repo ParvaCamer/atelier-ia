@@ -11,6 +11,7 @@ import {
 } from "three";
 import { useConfig } from "../state/config";
 import { useHistory } from "../state/history";
+import { useTodos } from "../state/todos";
 import { useWorld } from "../state/store";
 import { AgentLayer } from "./AgentLayer";
 import { OrchestratorLayer } from "./OrchestratorLayer";
@@ -40,6 +41,10 @@ export interface WorldOptions {
   onPick: (agentId: string | null) => void;
   onHover: (agentId: string | null) => void;
   onModeChange?: (mode: ViewMode) => void;
+  /** Clic sur le tableau de tâches planté au pied du belvédère. */
+  onPickBoard?: () => void;
+  /** Le curseur passe sur le tableau (ou le quitte). */
+  onHoverBoard?: (over: boolean) => void;
 }
 
 /** Touches de déplacement, par position physique : ZQSD en AZERTY = WASD en QWERTY. */
@@ -147,18 +152,16 @@ export class WorldRenderer {
       this.lit = -1;
       this.applyNight();
       const zones = [...this.zones.values()];
-      this.orchestrator.place(this.zones);
-      // L'estrade centrale se contourne : sinon agents et visiteur la traversent.
-      this.obstacles = [...zones.flatMap((z) => z.obstacles), this.orchestrator.obstacle()];
+      this.orchestrator.place(zones, zones.map((z) => z.sign.box));
+      // Le belvédère et son tableau se contournent : sinon le visiteur les traverse.
+      this.obstacles = [...zones.flatMap((z) => z.obstacles), ...this.orchestrator.footprint()];
       this.platforms = zones.map(({ project: { zone } }) => ({
         minX: zone.x - zone.width / 2, maxX: zone.x + zone.width / 2, minZ: zone.z - zone.depth / 2, maxZ: zone.z + zone.depth / 2,
       }));
-      // On peut marcher entre les zones, pas partir dans le vide.
+      // On peut marcher entre les zones et jusqu'au belvédère, pas partir dans le vide.
       const margin = 14;
-      this.limits = {
-        minX: Math.min(...this.platforms.map((p) => p.minX)) - margin, maxX: Math.max(...this.platforms.map((p) => p.maxX)) + margin,
-        minZ: Math.min(...this.platforms.map((p) => p.minZ)) - margin, maxZ: Math.max(...this.platforms.map((p) => p.maxZ)) + margin,
-      };
+      const extent = this.extent();
+      this.limits = { minX: extent.minX - margin, maxX: extent.maxX + margin, minZ: extent.minZ - margin, maxZ: extent.maxZ + margin };
       if (this.mode === "aerial") this.frameAll();
     };
 
@@ -168,6 +171,27 @@ export class WorldRenderer {
         if (s.projects !== prev.projects || s.agents !== prev.agents) rebuild();
       }),
     );
+
+    // Le tableau planté au pied du belvédère recopie la file ouverte.
+    const paintBoard = () => {
+      const colors = new Map(useWorld.getState().projects.map((p) => [p.id, p.color]));
+      const open = useTodos.getState().todos.filter((t) => ["proposed", "queued", "planning", "running"].includes(t.status));
+      this.orchestrator.setTodos(
+        open.map((t) => ({ text: t.text, status: t.status, color: t.projectId ? colors.get(t.projectId) ?? null : null })),
+        open.length,
+      );
+    };
+    paintBoard();
+    this.unsubscribe.push(useTodos.subscribe((s, prev) => { if (s.todos !== prev.todos) paintBoard(); }));
+  }
+
+  /** Emprise de tout ce qui est construit : plateformes et belvédère. */
+  private extent(): Box {
+    const all = [...this.platforms, this.orchestrator.bounds()];
+    return {
+      minX: Math.min(...all.map((p) => p.minX)), maxX: Math.max(...all.map((p) => p.maxX)),
+      minZ: Math.min(...all.map((p) => p.minZ)), maxZ: Math.max(...all.map((p) => p.maxZ)),
+    };
   }
 
   // ---------------------------------------------------------------
@@ -226,15 +250,9 @@ export class WorldRenderer {
   /** Cadre l'ensemble des zones — vue d'accueil. */
   frameAll() {
     this.setMode("aerial");
-    const projects = useWorld.getState().projects;
-    if (!projects.length) return;
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (const p of projects) {
-      minX = Math.min(minX, p.zone.x - p.zone.width / 2);
-      maxX = Math.max(maxX, p.zone.x + p.zone.width / 2);
-      minZ = Math.min(minZ, p.zone.z - p.zone.depth / 2);
-      maxZ = Math.max(maxZ, p.zone.z + p.zone.depth / 2);
-    }
+    if (!this.platforms.length) return;
+    // Le belvédère fait partie du cadre : c'est de là que tout se décide.
+    const { minX, maxX, minZ, maxZ } = this.extent();
     this.desired.target.set((minX + maxX) / 2, 0, (minZ + maxZ) / 2);
     // Cadrage : on tient compte du rapport d'écran, sinon une fenêtre
     // large laisse d'énormes marges et les agents deviennent minuscules.
@@ -327,7 +345,9 @@ export class WorldRenderer {
         return;
       }
       setPointer(e);
-      this.opts.onHover(this.pickAt());
+      const agent = this.pickAt();
+      this.opts.onHover(agent);
+      this.opts.onHoverBoard?.(!agent && this.pickBoard());
     });
 
     const endDrag = (e: PointerEvent) => {
@@ -337,7 +357,9 @@ export class WorldRenderer {
       // Un glissement de caméra ne doit pas être interprété comme un clic.
       if (moved < 6) {
         setPointer(e);
-        this.opts.onPick(this.pickAt());
+        const agent = this.pickAt();
+        if (!agent && this.pickBoard()) this.opts.onPickBoard?.();
+        else this.opts.onPick(agent);
       }
     };
     c.addEventListener("pointerup", endDrag);
@@ -399,6 +421,11 @@ export class WorldRenderer {
   private pickAt(): string | null {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     return this.agents.pick(this.raycaster);
+  }
+
+  private pickBoard(): boolean {
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    return this.orchestrator.pickBoard(this.raycaster);
   }
 
   private resize = () => {

@@ -57,4 +57,6 @@ pub enum DomainEvent {
     /// l'UI doit recharger. Volontairement grossier — ces changements
     /// sont rares, inutile d'optimiser.
     ConfigChanged,
+    /// Le tableau de l'orchestrateur a changé : l'UI recharge la liste.
+    TodosChanged,
 }

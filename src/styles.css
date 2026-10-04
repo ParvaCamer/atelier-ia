@@ -138,6 +138,36 @@ button.stat:disabled { cursor: default; }
   pointer-events: none;
 }
 
+/* Tableau de l'orchestrateur : posé sur le monde, sous le sélecteur de vue,
+   pour garder le tableau 3D visible à côté. */
+.todo-board {
+  position: absolute; left: 12px; top: 52px; z-index: 5; width: 340px; max-height: calc(100% - 92px);
+  display: flex; flex-direction: column; background: var(--panel); backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); user-select: text;
+}
+.todo-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 10px 6px 12px; font-weight: 600; font-size: 12.5px; }
+.todo-add { display: flex; flex-direction: column; gap: 6px; padding: 0 10px 10px; border-bottom: 1px solid var(--border); }
+.todo-add .row select { flex: 1; }
+.todo-scroll { overflow: auto; padding: 4px 10px 10px; }
+.todo-section h3 { margin: 10px 2px 6px; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); font-weight: 600; }
+.todo-card { padding: 8px 9px; margin-bottom: 6px; border-radius: 8px; border: 1px solid var(--border); border-left: 3px solid var(--text-faint); background: rgba(148, 178, 220, 0.03); }
+.todo-card[data-status="proposed"] { border-left-color: var(--warn); }
+.todo-card[data-status="queued"] { border-left-color: var(--info); }
+.todo-card[data-status="planning"], .todo-card[data-status="running"] { border-left-color: var(--accent); }
+.todo-card[data-status="done"] { border-left-color: var(--ok); opacity: 0.8; }
+.todo-card[data-status="failed"] { border-left-color: var(--err); }
+.todo-card[data-status="rejected"], .todo-card[data-status="cancelled"] { opacity: 0.6; }
+.todo-text { font-size: 12.5px; line-height: 1.4; color: var(--text); }
+.todo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 4px; font-size: 11px; color: var(--text-dim); }
+.todo-meta .dot { display: inline-block; width: 7px; height: 7px; }
+.todo-status { font-weight: 600; color: var(--text); }
+.todo-note { margin-top: 4px; font-size: 11px; line-height: 1.4; color: var(--text-faint); }
+.todo-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+.todo-actions:empty { display: none; }
+.todo-empty { font-size: 12px; color: var(--text-faint); padding: 2px 2px 6px; }
+@media (max-width: 900px) { .todo-board { width: calc(100% - 24px); } }
+
 /* Popover ancrée à un agent : elle le suit image par image, sans
    provoquer le moindre rendu React (position écrite via une ref). */
 .popover {
@@ -490,6 +520,9 @@ input, textarea, .xterm { user-select: text; -webkit-user-select: text; }
 .header-spacer { flex: 1 1 0; min-width: 8px; }
 
 .command-bar { flex-shrink: 1; min-width: 0; }
+/* En deçà, le bouton « Workflows » débordait sous les compteurs voisins :
+   ce sont les pastilles de projet, qui défilent, qui cèdent la place. */
+.header .command-bar { min-width: 320px; }
 .command { width: auto; flex: 0 1 340px; min-width: 200px; }
 
 @media (max-width: 1280px) {

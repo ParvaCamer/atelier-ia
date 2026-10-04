@@ -335,6 +335,40 @@ Sortie du Planner : JSON strictement validé contre un schéma. Si la
 validation échoue → une tentative de réparation, puis échec propre.
 Jamais d'exécution d'un plan non validé.
 
+### Tableau de l'orchestrateur (implémenté)
+
+Une file de demandes en langage naturel (table `todos`, migration 0012,
+`crates/engine/src/todos.rs`) que l'orchestrateur lit et exécute, une à
+la fois, en les confiant à `submit_request` — exactement comme une demande
+tapée. Le passage sur le tableau (`process_todos`, toutes les 3 s et dès
+qu'une tâche y est posée) clôt les tâches dont le run est fini, examine une
+proposition, puis lance la prochaine tâche en file.
+
+| Auteur | Entrée | Chemin |
+|---|---|---|
+| Utilisateur | `add_todo` (panneau « Tableau », ou clic sur le tableau 3D) | en file → exécutée |
+| Orchestrateur | `follow_ups` du plan : travaux distincts repérés en planifiant (≤ 2 par plan) | en file → exécutée |
+| Chef de projet (archétype `lead`) | outil interne `tableau.proposer`, pendant une de ses tâches (≤ 3 par tâche) | **proposée** → examinée par l'orchestrateur → en file ou refusée |
+
+Garde-fous, tous dans le moteur et couverts par `tests/intelligence.rs` :
+
+- **Fail-closed** : une proposition qu'aucun accord n'a validée ne
+  s'exécute jamais. L'examen est un appel unique à `reasoning.default`,
+  réponse fermée `accept | reject` ; s'il échoue, la proposition reste
+  proposée, avec la raison, et n'est pas réexaminée en boucle.
+  L'utilisateur peut toujours trancher à la place de l'orchestrateur.
+- **Seuls les chefs proposent** : l'outil n'est présenté qu'aux agents
+  d'archétype `lead`, et `propose_todo` refuse les autres. Il ne touche ni
+  au système ni aux fichiers : ce n'est pas un outil du registre.
+- **Générations bornées** : une suite prend `depth + 1` ; au-delà de
+  `MAX_TODO_DEPTH` (2), plus de suite. Sans cette borne, une suite
+  pourrait en appeler une autre indéfiniment.
+- Doublons (même texte, même projet, encore ouvert), texte vide ou de plus
+  de 500 caractères : refusés avec un message qui dit quoi faire.
+
+Aucun appel de modèle dans le scheduler : l'examen et la planification
+sont faits par l'orchestrateur, une fois par tâche, avant le run.
+
 ### Fournisseurs de modèles (implémenté)
 
 Le moteur ne demande jamais « Claude » ou « Llama » : il demande un **alias**
@@ -430,8 +464,27 @@ du DAG des runs actifs (`ConveyorLayer.ts`) ; un relais est une caisse qui
 file d'une machine à l'autre. Ciel, soleil, brouillard et éclairage
 suivent l'heure locale (`environment.ts`) ; la nuit, projecteurs et halos
 au sol s'allument. Terrain extraterrestre, roches, flore et falaises au
-loin. `__world.setClock(22)` (harnais) impose une heure pour juger un
-éclairage. Environ 77 draw calls et 66 k triangles avec 16 agents.
+loin, à peine vallonné (plus de montagnes à l'horizon). `__world.setClock(22)`
+(harnais) impose une heure pour juger un éclairage. Environ 87 draw calls et
+71 k triangles avec 5 projets, 19 agents et le belvédère.
+
+**Belvédère de l'orchestrateur** (`lookout.ts`, `OrchestratorLayer.ts`) :
+une plateforme surélevée (5 m) à charpente orange, plantée dans l'herbe
+entre les deux premiers projets de la rangée avant, du côté extérieur —
+derrière Spotly et Agency avec la disposition par défaut. Il s'y tient
+face au projet qu'il traite ; hologramme et balise prennent la teinte de
+son activité. Au repos, toutes les cinq minutes, il fait sa ronde :
+descend l'escalier, passe dans l'herbe devant chaque projet (jamais sur
+une plateforme : elles sont des obstacles gonflés), s'arrête pour le
+regarder, puis remonte. Une décision à prendre le renvoie à son poste.
+À ses pieds, le **tableau** recopie la file ouverte du tableau de
+l'orchestrateur ; un clic dessus ouvre le panneau correspondant.
+`__world.orchestrator.patrolNow()` lance la ronde (harnais) ;
+`window.__orchestratorStatus = "idle"` fige l'état simulé.
+
+**Enseignes de zone** : le nom de chaque projet est peint sur un panneau
+de tôle à deux poteaux, planté devant le bord avant de sa plateforme, lisible
+des deux côtés — plus d'étiquette flottante face à la caméra.
 
 Pipeline de traduction état → visuel (`src/world/palette.ts` pour la
 destination, `AgentLayer.ts` pour le mouvement) :
@@ -463,8 +516,16 @@ libres et comptés comme obstacles. Une `InstancedMesh` par pièce.
 Déplacements (`src/world/nav.ts`, fonctions pures) : chaque meuble a une
 emprise au sol ; un agent dont la ligne droite traverse un meuble passe par
 le coin le plus avantageux, deux agents qui se croisent s'écartent, aucun
-ne sort de sa plateforme. Au repos (personne ne marche, caméra posée,
-aucun signal), la boucle descend à 10 images/s.
+ne sort de sa plateforme. Le coin retenu tient compte du reste du trajet :
+si l'obstacle barre encore la route depuis ce coin, il faudra en passer un
+second — sans ce regard en avant, on oscillait devant une longue
+plateforme. Au repos (personne ne marche, caméra posée, aucun signal), la
+boucle descend à 10 images/s.
+
+Sélection : la sphère englobante d'une `InstancedMesh` est figée par
+three.js au premier lancer de rayon ; elle est recalculée à chaque survol,
+sans quoi un agent ajouté ensuite ou parti flâner loin du centre (cinquième
+projet) devenait impossible à sélectionner.
 
 ---
 

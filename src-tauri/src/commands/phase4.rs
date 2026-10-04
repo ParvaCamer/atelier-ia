@@ -1,4 +1,4 @@
-//! Historique, mémoire, planifications.
+//! Historique, mémoire, planifications, tableau de l'orchestrateur.
 
 use crate::state::{err, AppState, CmdResult};
 use atelier_domain::*;
@@ -73,4 +73,24 @@ pub async fn delete_watch(state: State<'_, AppState>, watch_id: WatchId) -> CmdR
 #[tauri::command]
 pub async fn cost_summary(state: State<'_, AppState>) -> CmdResult<CostSummary> {
     state.engine.cost_summary().await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn list_todos(state: State<'_, AppState>) -> CmdResult<Vec<Todo>> {
+    state.engine.list_todos().await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn add_todo(state: State<'_, AppState>, text: String, project_id: Option<ProjectId>) -> CmdResult<Todo> {
+    state.engine.add_todo(&text, project_id).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn decide_todo(state: State<'_, AppState>, todo_id: TodoId, accept: bool) -> CmdResult<Todo> {
+    state.engine.decide_todo(&todo_id, accept).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn cancel_todo(state: State<'_, AppState>, todo_id: TodoId) -> CmdResult<Todo> {
+    state.engine.cancel_todo(&todo_id).await.map_err(err)
 }

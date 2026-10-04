@@ -15,6 +15,7 @@ pub mod orchestrator;
 pub mod schedules;
 pub mod scheduler;
 pub mod semantic;
+pub mod todos;
 pub mod usage;
 pub mod watches;
 pub mod world;
@@ -93,6 +94,10 @@ pub struct Engine {
     pub(crate) schedule_lock: Mutex<()>,
     /// État de scrutation des surveillances de fichiers (relevés, rafales).
     pub(crate) watch_state: Mutex<HashMap<WatchId, watches::WatchState>>,
+    /// Un seul passage à la fois sur le tableau de l'orchestrateur.
+    pub(crate) todo_lock: Mutex<()>,
+    /// Réveille le tableau dès qu'une tâche y est posée.
+    pub(crate) todo_waker: Notify,
 }
 
 impl Engine {
@@ -127,6 +132,8 @@ impl Engine {
             waker: Notify::new(),
             schedule_lock: Mutex::new(()),
             watch_state: Mutex::new(HashMap::new()),
+            todo_lock: Mutex::new(()),
+            todo_waker: Notify::new(),
         });
 
         engine.hydrate().await?;
@@ -136,6 +143,7 @@ impl Engine {
         if engine.config.run_schedules {
             engine.clone().spawn_schedule_ticker();
             engine.clone().spawn_watch_ticker();
+            engine.clone().spawn_todo_ticker();
             // Souvenirs saisis avant les embeddings, ou pendant qu'Ollama
             // était éteint : indexés en fond, sans retarder le démarrage.
             let me = engine.clone();
@@ -181,6 +189,12 @@ impl Engine {
         // Jamais en accord — rien ne doit passer en force après un redémarrage.
         for approval in repo::approvals::pending(&self.db).await? {
             let _ = repo::approvals::resolve(&self.db, &approval.id, false).await;
+        }
+
+        // Une planification interrompue par l'arrêt n'a produit aucun run :
+        // la tâche du tableau retourne en file, elle sera relue.
+        for todo in repo::todos::by_status(&self.db, TodoStatus::Planning).await? {
+            repo::todos::set_status(&self.db, &todo.id, TodoStatus::Queued, None, None).await?;
         }
 
         for run in repo::runs::list_active(&self.db).await? {

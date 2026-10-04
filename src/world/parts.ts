@@ -136,36 +136,3 @@ export function glowTexture(): CanvasTexture {
   tex.colorSpace = SRGBColorSpace;
   return tex;
 }
-
-/**
- * Étiquette de zone : texte rendu en canvas, affiché comme sprite. La
- * largeur suit le texte mesuré — une largeur fixe coupait les noms longs
- * (« INFRASTRUCTURE » devenait « IFRASTRUCTUR »). Renvoie aussi le rapport
- * largeur/hauteur, pour que le sprite ne déforme pas les lettres.
- */
-export function labelTexture(text: string, color: string): { texture: CanvasTexture; aspect: number } {
-  const font = "600 54px ui-sans-serif, -apple-system, system-ui, sans-serif";
-  const spacing = 6;
-  const label = text.toUpperCase();
-  const measure = document.createElement("canvas").getContext("2d")!;
-  measure.font = font;
-  measure.letterSpacing = `${spacing}px`;
-  const width = Math.ceil(measure.measureText(label).width + spacing * 2 + 48);
-  const height = 128;
-
-  const canvas = document.createElement("canvas");
-  const dpr = 2;
-  canvas.width = width * dpr;
-  canvas.height = height * dpr;
-  const ctx = canvas.getContext("2d")!;
-  ctx.scale(dpr, dpr);
-  ctx.font = font;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = color;
-  ctx.letterSpacing = `${spacing}px`;
-  ctx.fillText(label, width / 2, height / 2);
-  const texture = new CanvasTexture(canvas);
-  texture.colorSpace = SRGBColorSpace;
-  return { texture, aspect: width / height };
-}

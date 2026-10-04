@@ -1,6 +1,6 @@
 /**
  * Décor : fondations des zones, machines (une par agent), tour de relais,
- * conteneur de stockage, banc d'attente, équipements, étiquettes.
+ * conteneur de stockage, banc d'attente, équipements, enseignes.
  *
  * Même principe que les agents — une `InstancedMesh` par pièce, partagée
  * par toutes les zones. Passer de 4 à 20 projets n'ajoute donc presque
@@ -8,18 +8,24 @@
  */
 import {
   AdditiveBlending, BoxGeometry, CircleGeometry, Color, DoubleSide, FrontSide, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial,
-  MeshLambertMaterial, Object3D, Scene, Sprite, SpriteMaterial,
+  MeshLambertMaterial, Object3D, PlaneGeometry, Scene,
 } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { PLATFORM, PROP, PROP_DARK, SEAM } from "./palette";
-import { glowTexture, labelTexture, props } from "./parts";
+import { glowTexture, props } from "./parts";
+import { SIGN_HEIGHT, signTexture } from "./signs";
 import type { ZoneLayout } from "./layout";
 import { FURNITURE, LIGHT_OFF, LIGHT_ON, SAFETY } from "./furniture";
+import { GROUND_Y } from "./environment";
 import {
   MACHINE_DARK, MACHINE_METAL, MACHINE_ORANGE, MACHINE_PIECES, MACHINE_ROTORS, ROTOR_DOUBLE_SIDED,
   type MachineFamily,
 } from "./machines";
 
 const PLATFORM_H = 0.32;
+/** Bas du panneau des enseignes, au-dessus de l'herbe. */
+const SIGN_BOTTOM = 1.6;
+const SIGN_DEPTH = 0.1;
 /** Pas du quadrillage des fondations, comme les dalles de 4 m du jeu. */
 const TILE = 4;
 const PANEL_OFF = new Color("#1c242e");
@@ -92,9 +98,21 @@ export class SceneryLayer {
       this.place(benches, zi, zone.bench.x, 0, zone.bench.z);
       this.place(cabinets, zi, zone.cabinet.x, 0, zone.cabinet.z);
       this.place(drawers, zi, zone.cabinet.x, 0, zone.cabinet.z);
-      this.group.add(this.zoneLabel(zone));
+      this.group.add(this.zoneSign(zone));
     });
     seams.count = seam;
+
+    // Poteaux et tôles des enseignes, toutes zones confondues : seule la
+    // face peinte, propre à chaque projet, coûte un draw call par zone.
+    const signPosts = new InstancedMesh(new BoxGeometry(0.16, SIGN_BOTTOM + SIGN_HEIGHT + 0.15, 0.16), lambert(MACHINE_DARK), n * 2);
+    const signPlates = new InstancedMesh(new BoxGeometry(1, 1, 1), lambert(MACHINE_DARK), n);
+    zones.forEach((zone, zi) => {
+      const { x, z, width } = zone.sign;
+      for (const [k, side] of [-1, 1].entries()) {
+        this.place(signPosts, zi * 2 + k, x + side * (width / 2 + 0.05), (SIGN_BOTTOM + SIGN_HEIGHT + 0.15) / 2 + GROUND_Y, z);
+      }
+      this.place(signPlates, zi, x, GROUND_Y + SIGN_BOTTOM + SIGN_HEIGHT / 2, z, width + 0.08, SIGN_HEIGHT + 0.08, SIGN_DEPTH);
+    });
 
     const machineMeshes = this.buildMachines(zones);
     // Une flaque de lumière par projecteur : additive, donc invisible quand
@@ -117,7 +135,7 @@ export class SceneryLayer {
     });
     this.pools = pools;
     const decor = this.furnish(zones);
-    for (const m of [platforms, rims, seams, racks, rackLights, benches, cabinets, drawers, pools, ...machineMeshes, ...decor]) {
+    for (const m of [platforms, rims, seams, racks, rackLights, benches, cabinets, drawers, pools, signPosts, signPlates, ...machineMeshes, ...decor]) {
       m.frustumCulled = false;
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
@@ -214,18 +232,27 @@ export class SceneryLayer {
     mesh.setMatrixAt(i, this.dummy.matrix);
   }
 
-  private zoneLabel(zone: ZoneLayout): Sprite {
-    const { texture, aspect } = labelTexture(zone.project.name, zone.project.color);
-    const sprite = new Sprite(new SpriteMaterial({ map: texture, transparent: true, depthWrite: false, opacity: 0.95 }));
-    // L'étiquette flotte au-dessus du centre de sa zone. Posée sur un
-    // bord, elle finit par recouvrir une plateforme voisine dès que la
-    // caméra tourne — un sprite fait toujours face à l'objectif.
-    const { x, z } = zone.project.zone;
-    sprite.position.set(x, 6.2, z);
-    // Hauteur de lettre constante ; la largeur suit le nom, bornée par la zone.
-    const height = Math.min(2.25, (zone.project.zone.width * 0.9) / aspect);
-    sprite.scale.set(height * aspect, height, 1);
-    return sprite;
+  /**
+   * Face peinte de l'enseigne : le nom sur les deux côtés de la tôle, en une
+   * seule géométrie. La caméra tourne autour du monde, et un panneau vu de
+   * dos ne dirait rien.
+   */
+  private zoneSign(zone: ZoneLayout): Mesh {
+    const { x, z, width } = zone.sign;
+    const map = signTexture(zone.project.name, zone.project.color, width);
+    const front = new PlaneGeometry(width, SIGN_HEIGHT);
+    front.translate(0, 0, SIGN_DEPTH / 2 + 0.005);
+    // Retournée d'un demi-tour : sa face, et donc son texte, regarde vers −z
+    // dans le bon sens de lecture.
+    const back = new PlaneGeometry(width, SIGN_HEIGHT);
+    back.rotateY(Math.PI);
+    back.translate(0, 0, -SIGN_DEPTH / 2 - 0.005);
+    // Légèrement émissive : l'enseigne reste lisible la nuit.
+    const face = new MeshLambertMaterial({ map, emissive: new Color("#ffffff"), emissiveMap: map, emissiveIntensity: 0.3 });
+    const sign = new Mesh(mergeGeometries([front, back])!, face);
+    sign.position.set(x, GROUND_Y + SIGN_BOTTOM + SIGN_HEIGHT / 2, z);
+    sign.userData.ownGeometry = true;
+    return sign;
   }
 
   /**
@@ -262,12 +289,14 @@ export class SceneryLayer {
   private clear() {
     for (const child of [...this.group.children]) {
       if (child instanceof InstancedMesh || child instanceof Mesh) {
-        // Les géométries sont partagées (modules) : seules les matières sont jetées.
-        (child.material as MeshLambertMaterial).dispose();
-      }
-      if (child instanceof Sprite) {
-        child.material.map?.dispose();
-        child.material.dispose();
+        // Les géométries sont partagées (modules) : seules les matières sont
+        // jetées — sauf la face des enseignes, propre à chacune.
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const m of materials as MeshLambertMaterial[]) {
+          m.map?.dispose();
+          m.dispose();
+        }
+        if (child.userData.ownGeometry) child.geometry.dispose();
       }
       this.group.remove(child);
     }

@@ -528,6 +528,11 @@ export class AgentLayer {
 
   /** Renvoie l'identifiant de l'agent sous le curseur, s'il y en a un. */
   pick(raycaster: Raycaster): string | null {
+    // La sphère englobante d'une InstancedMesh est calculée au premier
+    // lancer de rayon puis gardée telle quelle par three.js. Un agent ajouté
+    // ensuite, ou parti flâner hors de cette sphère (zone éloignée, cinquième
+    // projet…), devenait impossible à survoler comme à sélectionner.
+    this.hits.computeBoundingSphere();
     const hit = raycaster.intersectObject(this.hits as unknown as Mesh, false)[0];
     if (!hit || hit.instanceId === undefined) return null;
     return this.order[hit.instanceId] ?? null;

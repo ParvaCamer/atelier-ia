@@ -11,6 +11,7 @@
 //! indéfiniment en consommant le quota.
 
 use crate::scheduler::Failure;
+use crate::todos::{BOARD_TOOL, MAX_PROPOSALS_PER_TASK};
 use crate::{CallError, Engine};
 use atelier_domain::*;
 use atelier_providers::{CompletionRequest, Message, ProviderError};
@@ -83,7 +84,13 @@ impl Engine {
             )));
         }
 
-        let tools: Vec<String> = agent.tools.iter().filter(|t| self.tools.get(t).is_some()).cloned().collect();
+        let mut tools: Vec<String> = agent.tools.iter().filter(|t| self.tools.get(t).is_some()).cloned().collect();
+        // Le tableau n'est pas un outil du registre : il ne touche pas au
+        // système, et son seul droit — proposer — est réservé aux chefs.
+        if agent.archetype == Archetype::Lead {
+            tools.push(BOARD_TOOL.to_string());
+        }
+        let mut proposals = 0usize;
         let system = self.agent_system_prompt(&agent, task, &tools).await.map_err(|e| fail(e.to_string()))?;
         let brief = if task.description.trim().is_empty() { "(pas de précision supplémentaire)" } else { task.description.as_str() };
         let mut messages = vec![Message::user(format!("Tâche : {}\n\n{brief}", task.title))];
@@ -166,6 +173,26 @@ impl Engine {
                 Some(tool) if !tools.iter().any(|t| t == tool) => {
                     errors += 1;
                     format!("ERREUR : « {tool} » ne fait pas partie de tes outils ({}).", tools.join(", "))
+                }
+                Some(BOARD_TOOL) => {
+                    let text = action.args.as_ref().and_then(|a| a.get("text")).and_then(Value::as_str).unwrap_or_default();
+                    let proposed = if proposals >= MAX_PROPOSALS_PER_TASK {
+                        Err(anyhow::anyhow!("{MAX_PROPOSALS_PER_TASK} propositions au plus par tâche"))
+                    } else {
+                        self.propose_todo(&agent, text).await
+                    };
+                    match proposed {
+                        Ok(_) => {
+                            proposals += 1;
+                            errors = 0;
+                            ctx.log(LogStream::System, format!("📋 proposé au tableau : « {} »", text.trim()));
+                            "Proposition enregistrée. L'orchestrateur décidera de l'exécuter ou non : ne l'attends pas, poursuis ta tâche.".to_string()
+                        }
+                        Err(e) => {
+                            errors += 1;
+                            format!("ERREUR : proposition refusée — {e}.")
+                        }
+                    }
                 }
                 Some(tool) => match self.call_tool(ctx, tool, action.args.clone().unwrap_or_else(|| json!({}))).await {
                     Ok(out) => {
@@ -261,6 +288,13 @@ impl Engine {
             if let Some(tool) = self.tools.get(id) {
                 out.push_str(&format!("- `{id}` — {} Arguments : {}\n", tool.description(), tool.schema()));
             }
+        }
+        if tools.iter().any(|t| t == BOARD_TOOL) {
+            out.push_str(&format!(
+                "- `{BOARD_TOOL}` — En tant que chef de projet, propose au tableau de l'orchestrateur un travail \
+                 distinct de ta tâche, repéré en chemin (dette, suite logique). Il décide de l'exécuter ou non. \
+                 Au plus {MAX_PROPOSALS_PER_TASK} par tâche. Arguments : {{\"text\": \"la demande, en une phrase\"}}\n"
+            ));
         }
         out.push_str(&format!(
             "\n## Règles\n\

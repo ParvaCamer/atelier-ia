@@ -6,11 +6,11 @@
  * du moteur : l'heure est celle de la machine, pas un état métier.
  *
  * Le terrain est plat là où l'on peut marcher (autour des zones) et ondule
- * au-delà ; roches, flore et falaises lointaines donnent l'échelle, chacun
- * en un seul draw call.
+ * doucement au-delà ; roches et flore donnent l'échelle, chacune en un seul
+ * draw call. Pas de montagnes : les pitons de l'horizon écrasaient la scène.
  */
 import {
-  BufferAttribute, Color, ConeGeometry, CylinderGeometry, DirectionalLight, DodecahedronGeometry, Fog,
+  BufferAttribute, Color, CylinderGeometry, DirectionalLight, DodecahedronGeometry, Fog,
   HemisphereLight, IcosahedronGeometry, InstancedMesh, Mesh, MeshLambertMaterial, Object3D, PlaneGeometry, Scene,
 } from "three";
 
@@ -71,7 +71,7 @@ export class Environment {
     this.sun.position.set(30, 40, 20);
     this.fill.position.set(-22, 14, -18);
     scene.add(this.sun, this.sun.target, this.fill, this.hemi);
-    scene.add(makeTerrain(), makeRocks(), ...makeFlora(), makeCliffs());
+    scene.add(makeTerrain(), makeRocks(), ...makeFlora());
   }
 
   /** Impose une heure (0–24) pour juger un éclairage ; `null` rend l'heure réelle. */
@@ -129,25 +129,24 @@ function rand(seed: number): () => number {
 }
 
 /**
- * Sol de la planète : herbe, sable et roche mêlés par bruit, plat dans le
- * rayon praticable, vallonné au-delà.
+ * Sol de la planète : herbe et sable mêlés par bruit, plat dans le rayon
+ * praticable, à peine vallonné au-delà — des prairies, pas des montagnes.
  */
 function makeTerrain(): Mesh {
   const geo = new PlaneGeometry(WORLD, WORLD, 140, 140);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
-  const grass = new Color("#4f7a3a"), moss = new Color("#6c8a3e"), sand = new Color("#a8925f"), rock = new Color("#6d6a62");
+  const grass = new Color("#4f7a3a"), moss = new Color("#6c8a3e"), sand = new Color("#a8925f");
   const c = new Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     const r = Math.hypot(x, z);
     const n = noise(x, z);
-    const hills = r > CLEAR ? Math.pow(Math.min(1, (r - CLEAR) / 80), 1.6) * (6 + n * 6) : 0;
+    const hills = r > CLEAR ? Math.pow(Math.min(1, (r - CLEAR) / 80), 1.6) * (1.6 + n * 1.4) : 0;
     pos.setY(i, GROUND_Y - 0.05 + hills);
     c.copy(grass).lerp(moss, (n + 1) / 2);
     if (n > 0.55) c.lerp(sand, Math.min(1, (n - 0.55) * 3));
-    if (hills > 4) c.lerp(rock, Math.min(1, (hills - 4) / 5));
     colors.set([c.r, c.g, c.b], i * 3);
   }
   geo.setAttribute("color", new BufferAttribute(colors, 3));
@@ -206,22 +205,4 @@ function makeFlora(): [InstancedMesh, InstancedMesh] {
     crowns.setColorAt(i, palette[Math.floor(r() * palette.length)]);
   }
   return [trunks, crowns];
-}
-
-/** Falaises à l'horizon : un anneau de pitons qui ferme le paysage. */
-function makeCliffs(): InstancedMesh {
-  const count = 48;
-  const mesh = new InstancedMesh(new ConeGeometry(1, 1, 5), new MeshLambertMaterial({}), count);
-  const r = rand(91), d = new Object3D(), c = new Color();
-  for (let i = 0; i < count; i++) {
-    const a = (i / count) * Math.PI * 2 + r() * 0.1, dist = 175 + r() * 25;
-    const h = 25 + r() * 45, w = 14 + r() * 16;
-    d.position.set(Math.cos(a) * dist, GROUND_Y + h / 2 - 2, Math.sin(a) * dist);
-    d.scale.set(w, h, w * 0.8);
-    d.rotation.set(0, r() * 3, 0);
-    d.updateMatrix();
-    mesh.setMatrixAt(i, d.matrix);
-    mesh.setColorAt(i, c.set("#8a7d6a").multiplyScalar(0.7 + r() * 0.3));
-  }
-  return mesh;
 }

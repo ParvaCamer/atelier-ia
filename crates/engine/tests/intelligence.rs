@@ -101,6 +101,16 @@ async fn world(replies: Vec<Value>) -> World {
 }
 
 async fn world_costing(replies: Vec<Value>, cost: Option<f64>) -> World {
+    world_with(replies, cost, true).await
+}
+
+/// Sans minuteurs : le tableau n'avance que par `process_todos`, appelé par
+/// le test. Sinon le passage automatique consommerait les réponses scriptées.
+async fn world_manual(replies: Vec<Value>) -> World {
+    world_with(replies, None, false).await
+}
+
+async fn world_with(replies: Vec<Value>, cost: Option<f64>, run_schedules: bool) -> World {
     let db = Db::open_in_memory().await.unwrap();
     let grants = [("shell.exec", "echo")];
     let project = add_project(&db, "Test", "application mobile", &["Agent 0", "Agent 1"], &grants).await;
@@ -118,7 +128,7 @@ async fn world_costing(replies: Vec<Value>, cost: Option<f64>) -> World {
         .with_route("classify.fast", route())
         .with_route("reasoning.default", Route { provider_id: "fake-raisonnement".into(), ..route() });
 
-    let engine = Engine::start_with(db, EngineConfig { providers: Some(registry), ..Default::default() }).await.unwrap();
+    let engine = Engine::start_with(db, EngineConfig { providers: Some(registry), run_schedules, ..Default::default() }).await.unwrap();
     World { engine, project, other, script }
 }
 
@@ -409,4 +419,168 @@ async fn sans_cout_annonce_le_cumul_reste_vide() {
     let usage = w.engine.run_detail(&run).await.unwrap().summary.usage;
     assert_eq!(usage.calls, 1);
     assert_eq!(usage.cost_usd, None, "aucun coût annoncé : on n'invente pas 0 $");
+}
+
+// ---------------------------------------------------------------------
+// Tableau de l'orchestrateur
+// ---------------------------------------------------------------------
+
+async fn make_lead(w: &World, name: &str) -> AgentId {
+    let mut a = repo::agents::get(w.engine.db(), &agent_named(w, name).await).await.unwrap();
+    a.archetype = Archetype::Lead;
+    repo::agents::upsert(w.engine.db(), &a).await.unwrap();
+    a.id
+}
+
+fn plan_echo(follow_ups: &[&str]) -> Value {
+    json!({"decision": "plan", "title": "t", "reasoning": "", "follow_ups": follow_ups, "steps": [
+        {"key": "a", "title": "A", "instruction": "", "agent": "Agent 0", "depends_on": [], "commands": ["echo a"]}]})
+}
+
+fn propose(text: &str) -> Value {
+    json!({"thought": "je repère une dette", "action": "tool", "tool": "tableau.proposer", "args": {"text": text}})
+}
+
+async fn todo_by_text(w: &World, text: &str) -> Todo {
+    w.engine.list_todos().await.unwrap().into_iter().find(|t| t.text == text).unwrap_or_else(|| panic!("« {text} » absent du tableau"))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn tableau_tache_posee_lue_puis_executee() {
+    let w = world_manual(vec![plan_echo(&[])]).await;
+    let todo = w.engine.add_todo("lance a", Some(w.project.clone())).await.unwrap();
+    assert_eq!(todo.status, TodoStatus::Queued);
+    assert_eq!(todo.author, TodoAuthor::User);
+
+    w.engine.process_todos().await.unwrap();
+    let running = repo::todos::get(w.engine.db(), &todo.id).await.unwrap();
+    assert_eq!(running.status, TodoStatus::Running, "{:?}", running.note);
+    let run = running.run_id.expect("la tâche doit être liée à son run");
+    assert_eq!(repo::runs::get(w.engine.db(), &run).await.unwrap().request.as_deref(), Some("lance a"));
+
+    let task = repo::tasks::list_by_run(w.engine.db(), &run).await.unwrap().remove(0);
+    wait_for(&w, &task.id, TaskStatus::Completed).await;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        w.engine.process_todos().await.unwrap();
+        if repo::todos::get(w.engine.db(), &todo.id).await.unwrap().status == TodoStatus::Done {
+            break;
+        }
+        assert!(Instant::now() < deadline, "le run terminé doit clore la tâche du tableau");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn tableau_refuse_vide_trop_long_et_doublon() {
+    let w = world_manual(vec![]).await;
+    assert!(w.engine.add_todo("   ", None).await.unwrap_err().to_string().contains("vide"));
+    let long = "x".repeat(atelier_engine::todos::TODO_MAX_CHARS + 1);
+    assert!(w.engine.add_todo(&long, None).await.unwrap_err().to_string().contains("maximum"));
+    w.engine.add_todo("Mettre à jour les dépendances", Some(w.project.clone())).await.unwrap();
+    let err = w.engine.add_todo("  mettre à jour   les dépendances ", Some(w.project.clone())).await.unwrap_err().to_string();
+    assert!(err.contains("déjà au tableau"), "{err}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn proposition_d_un_chef_validee_par_l_orchestrateur_avant_execution() {
+    let w = world_manual(vec![
+        propose("Supprimer le code mort du module paiement"),
+        json!({"thought": "fini", "action": "finish", "summary": "revue faite"}),
+        json!({"reason": "concret et dans le périmètre", "decision": "accept"}),
+        plan_echo(&[]),
+    ]).await;
+    let lead = make_lead(&w, "Agent 0").await;
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Completed).await;
+    assert!(w.script.seen()[0].system.contains("tableau.proposer"), "l'outil doit être présenté au chef");
+
+    let proposed = todo_by_text(&w, "Supprimer le code mort du module paiement").await;
+    assert_eq!(proposed.status, TodoStatus::Proposed, "une proposition de chef ne doit pas partir en file");
+    assert_eq!(proposed.author, TodoAuthor::Agent { agent_id: lead });
+    assert_eq!(proposed.project_id.as_ref(), Some(&w.project));
+
+    w.engine.process_todos().await.unwrap();
+    let seen = w.script.seen();
+    assert!(seen[2].system.contains("propose une tâche pour ton tableau"), "l'orchestrateur doit examiner avant de planifier");
+    let after = repo::todos::get(w.engine.db(), &proposed.id).await.unwrap();
+    assert_eq!(after.status, TodoStatus::Running, "{:?}", after.note);
+    assert!(after.note.unwrap_or_default().contains("validée par l'orchestrateur"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn proposition_refusee_ne_s_execute_jamais() {
+    let w = world_manual(vec![
+        propose("Publier la version 3 sur le store"),
+        json!({"thought": "fini", "action": "finish", "summary": "ok"}),
+        json!({"reason": "publier exige l'accord d'un humain", "decision": "reject"}),
+    ]).await;
+    make_lead(&w, "Agent 0").await;
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Completed).await;
+    let runs_before = repo::runs::list_recent(w.engine.db(), 10).await.unwrap().len();
+
+    w.engine.process_todos().await.unwrap();
+    w.engine.process_todos().await.unwrap();
+    let todo = todo_by_text(&w, "Publier la version 3 sur le store").await;
+    assert_eq!(todo.status, TodoStatus::Rejected);
+    assert!(todo.note.unwrap().contains("accord d'un humain"));
+    assert_eq!(repo::runs::list_recent(w.engine.db(), 10).await.unwrap().len(), runs_before, "aucun run pour une proposition refusée");
+    assert!(w.engine.decide_todo(&todo.id, true).await.is_err(), "une proposition close ne se rouvre pas");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn examen_impossible_la_proposition_reste_proposee() {
+    // Le script s'épuise après la tâche du chef : l'examen échoue.
+    let w = world_manual(vec![
+        propose("Ajouter des tests au module panier"),
+        json!({"thought": "fini", "action": "finish", "summary": "ok"}),
+    ]).await;
+    make_lead(&w, "Agent 0").await;
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Completed).await;
+
+    w.engine.process_todos().await.unwrap();
+    let todo = todo_by_text(&w, "Ajouter des tests au module panier").await;
+    assert_eq!(todo.status, TodoStatus::Proposed, "fail-closed : sans examen, rien ne s'exécute");
+    assert!(todo.note.as_deref().unwrap_or_default().contains("trancher toi-même"));
+
+    let calls = w.script.seen().len();
+    w.engine.process_todos().await.unwrap();
+    assert_eq!(w.script.seen().len(), calls, "un examen en échec n'est pas relancé à chaque passage");
+
+    let decided = w.engine.decide_todo(&todo.id, true).await.unwrap();
+    assert_eq!(decided.status, TodoStatus::Queued, "l'utilisateur peut trancher à la place de l'orchestrateur");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn seul_un_chef_peut_proposer_au_tableau() {
+    let w = world(vec![
+        propose("Refaire la page d'accueil"),
+        json!({"thought": "fini", "action": "finish", "summary": "ok"}),
+    ]).await;
+    let task = ai_step(&w, "Agent 1").await;
+    wait_for(&w, &task, TaskStatus::Completed).await;
+
+    let seen = w.script.seen();
+    assert!(!seen[0].system.contains("tableau.proposer"), "l'outil n'est pas présenté à un agent qui n'est pas chef");
+    assert!(last_message(&seen[1]).contains("ne fait pas partie de tes outils"));
+    assert!(w.engine.list_todos().await.unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn suites_de_l_orchestrateur_bornees_en_generations() {
+    let w = world_manual(vec![plan_echo(&["suite un"]), plan_echo(&["suite deux"]), plan_echo(&["suite trois"])]).await;
+    w.engine.add_todo("demande initiale", Some(w.project.clone())).await.unwrap();
+
+    for _ in 0..3 {
+        w.engine.process_todos().await.unwrap();
+    }
+    let todos = w.engine.list_todos().await.unwrap();
+    let un = todo_by_text(&w, "suite un").await;
+    let deux = todo_by_text(&w, "suite deux").await;
+    assert_eq!((un.author.clone(), un.depth), (TodoAuthor::Orchestrator, 1));
+    assert_eq!(deux.depth, 2);
+    assert!(!todos.iter().any(|t| t.text == "suite trois"), "au-delà de {} générations, plus de suite", atelier_engine::todos::MAX_TODO_DEPTH);
+    assert_eq!(w.script.seen().len(), 3);
 }

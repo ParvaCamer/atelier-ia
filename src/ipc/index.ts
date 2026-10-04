@@ -12,7 +12,7 @@ import type {
   Project, ProjectId, ProviderConfig, ProviderHealth, PtyId, RouteTest, Run, RunId, Task,
   TaskControl, TaskId, ToolInfo, Workflow, WorkflowId, WorldSnapshot,
   MemoryEntry, MemoryFilter, MemoryId, MemoryView, RunDetail, RunFilter, RunSummary,
-  Schedule, ScheduleId, TeamTemplate, WorkflowCheck, FileWatch, WatchId, CostSummary,
+  Schedule, ScheduleId, TeamTemplate, WorkflowCheck, FileWatch, WatchId, CostSummary, Todo, TodoId,
 } from "./generated";
 
 export type GrantPresetName = "none" | "read-only" | "developer";
@@ -116,6 +116,14 @@ export const api = {
   listWatches: () => invoke<FileWatch[]>("list_watches"),
   saveWatch: (watch: FileWatch) => invoke<FileWatch>("save_watch", { watch }),
   deleteWatch: (watchId: WatchId) => invoke<void>("delete_watch", { watchId }),
+
+  // --- tableau de l'orchestrateur ---
+  listTodos: () => invoke<Todo[]>("list_todos"),
+  /** `projectId` à `null` : l'orchestrateur aiguille lui-même. */
+  addTodo: (text: string, projectId: ProjectId | null) => invoke<Todo>("add_todo", { text, projectId }),
+  /** Trancher une proposition de chef à la place de l'orchestrateur. */
+  decideTodo: (todoId: TodoId, accept: boolean) => invoke<Todo>("decide_todo", { todoId, accept }),
+  cancelTodo: (todoId: TodoId) => invoke<Todo>("cancel_todo", { todoId }),
 };
 
 /** Noms d'événements — dupliqués dans src-tauri/src/events.rs. */

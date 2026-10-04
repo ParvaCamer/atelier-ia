@@ -2,6 +2,7 @@ import { useWorld } from "../state/store";
 import { CommandBar } from "./CommandBar";
 import { useConfig } from "../state/config";
 import { useHistory } from "../state/history";
+import { useTodos } from "../state/todos";
 
 interface Props {
   onFocusProject: (projectId: string) => void;
@@ -15,6 +16,9 @@ export function Header({ onFocusProject, onFrameAll }: Props) {
 
   const working = snapshot.agents.filter((a) => a.status === "working").length;
   const running = snapshot.runs.filter((r) => r.status === "running");
+  const todos = useTodos((s) => s.todos);
+  const openTodos = todos.filter((t) => ["proposed", "queued", "planning", "running"].includes(t.status)).length;
+  const proposals = todos.filter((t) => t.status === "proposed").length;
 
   return (
     <header className="header">
@@ -49,6 +53,13 @@ export function Header({ onFocusProject, onFrameAll }: Props) {
       {snapshot.pendingApprovals > 0 && (
         <div className="stat alert"><b>{snapshot.pendingApprovals}</b> à valider</div>
       )}
+      <button
+        className={proposals ? "stat alert" : "stat"}
+        onClick={() => useTodos.getState().toggle()}
+        title={proposals ? `${proposals} proposition(s) de chef à examiner` : "Tâches que l'orchestrateur lira et exécutera"}
+      >
+        <b>{openTodos}</b> au tableau
+      </button>
       <button className="gear" onClick={() => useHistory.getState().show()} title="Exécutions passées, actions et décisions">
         Historique
       </button>
