@@ -1167,9 +1167,9 @@ const TEAMS: &[(&str, &str, &str, &[(&str, Archetype, Option<&str>)])] = &[
         "Contenu",
         "developer",
         &[
-            ("Direction artistique", Archetype::Designer, None),
-            ("Motion designer", Archetype::Designer, None),
-            ("Rédaction", Archetype::Marketing, None),
+            ("Direction artistique", Archetype::Designer, Some("direction-artistique")),
+            ("Motion designer", Archetype::Designer, Some("motion-designer")),
+            ("Rédaction", Archetype::Marketing, Some("redaction")),
         ],
     ),
     (

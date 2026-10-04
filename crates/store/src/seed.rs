@@ -435,6 +435,9 @@ pub async fn ensure_builtin_providers(db: &Db) -> Result<()> {
 const BUILTIN_AGENT_SKILLS: &[(&str, &str)] = &[
     ("dev-front", include_str!("../../../skills/agents/dev-front.md")),
     ("qa", include_str!("../../../skills/agents/qa.md")),
+    ("motion-designer", include_str!("../../../skills/agents/motion-designer.md")),
+    ("direction-artistique", include_str!("../../../skills/agents/direction-artistique.md")),
+    ("redaction", include_str!("../../../skills/agents/redaction.md")),
 ];
 
 /// Titre d'un skill : son premier titre markdown de niveau 1.
