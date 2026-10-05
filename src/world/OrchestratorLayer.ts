@@ -203,6 +203,11 @@ export class OrchestratorLayer {
     this.toPost();
   }
 
+  /** Position du personnage : le visiteur ne le traverse pas, même là-haut. */
+  position(): Vector3 {
+    return this.pos;
+  }
+
   /** Site du belvédère, pour les équipements plantés à côté (écran géant). */
   siteOf(): Vector3 {
     return this.site;

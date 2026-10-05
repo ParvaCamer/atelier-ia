@@ -8,6 +8,17 @@
 export interface Box { minX: number; maxX: number; minZ: number; maxZ: number }
 export interface P { x: number; z: number }
 
+/**
+ * Surface praticable en hauteur (escalier, plateforme) : une emprise au sol
+ * et la hauteur du plancher en chaque point. `blocked` : ce qui encombre ce
+ * plancher (un pupitre), qu'on contourne là-haut seulement.
+ */
+export interface Walkway {
+  box: Box;
+  height: (x: number, z: number) => number;
+  blocked?: Box[];
+}
+
 export const inside = (b: Box, p: P) => p.x > b.minX && p.x < b.maxX && p.z > b.minZ && p.z < b.maxZ;
 
 /** Le segment a→b traverse-t-il la boîte ? (méthode des tranches) */

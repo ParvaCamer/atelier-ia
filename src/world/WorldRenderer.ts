@@ -20,10 +20,11 @@ import { AgentLayer } from "./AgentLayer";
 import { OrchestratorLayer } from "./OrchestratorLayer";
 import { ConveyorLayer } from "./ConveyorLayer";
 import { Visitor, type WalkInput } from "./Visitor";
-import type { Box } from "./nav";
+import type { Box, Walkway } from "./nav";
+import { lookoutGroundObstacles, lookoutWalkways } from "./lookout";
 import { SceneryLayer } from "./SceneryLayer";
 import { darkness, Environment } from "./environment";
-import { buildLayout, type ZoneLayout } from "./layout";
+import { AGENT_RADIUS, buildLayout, type ZoneLayout } from "./layout";
 import { GROUND } from "./palette";
 
 const MIN_RADIUS = 12;
@@ -77,6 +78,8 @@ export class WorldRenderer {
   private nearAgent: string | null = null;
   /** Obstacles et sols de toutes les zones, recalculés avec le décor. */
   private obstacles: Box[] = [];
+  /** Planchers en hauteur où le visiteur peut monter (belvédère). */
+  private walkways: Walkway[] = [];
   private platforms: Box[] = [];
   private limits: Box = { minX: -60, maxX: 60, minZ: -60, maxZ: 60 };
   private scenery: SceneryLayer;
@@ -166,8 +169,11 @@ export class WorldRenderer {
       const zones = [...this.zones.values()];
       this.orchestrator.place(zones, zones.map((z) => z.sign.box));
       this.screen.place(this.orchestrator.siteOf());
-      // Le belvédère et son tableau se contournent : sinon le visiteur les traverse.
-      this.obstacles = [...zones.flatMap((z) => z.obstacles), ...this.orchestrator.footprint()];
+      // Au sol, on contourne les pieds du belvédère, le tableau et l'écran ;
+      // on monte sur la plateforme par l'escalier.
+      const site = this.orchestrator.siteOf();
+      this.obstacles = [...zones.flatMap((z) => z.obstacles), ...lookoutGroundObstacles(site, AGENT_RADIUS)];
+      this.walkways = lookoutWalkways(site);
       this.platforms = zones.map(({ project: { zone } }) => ({
         minX: zone.x - zone.width / 2, maxX: zone.x + zone.width / 2, minZ: zone.z - zone.depth / 2, maxZ: zone.z + zone.depth / 2,
       }));
@@ -509,7 +515,8 @@ export class WorldRenderer {
       if (this.environment.update()) this.applyNight();
       let visitorMoving = false;
       if (this.mode === "walk") {
-        visitorMoving = this.visitor.update(dt, this.walkInput(), this.obstacles, this.platforms, this.agents.positions(), this.limits);
+        const people = [...this.agents.positions(), this.orchestrator.position()];
+        visitorMoving = this.visitor.update(dt, this.walkInput(), this.obstacles, this.platforms, people, this.limits, this.walkways);
         this.visitor.placeCamera(this.camera, dt);
         this.setNear(this.agents.nearest(this.visitor.pos, NEAR_AGENT));
       } else {

@@ -11,7 +11,7 @@
  */
 import { BoxGeometry, type BufferGeometry, Vector3 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import type { Box } from "./nav";
+import type { Box, Walkway } from "./nav";
 import type { ZoneLayout } from "./layout";
 
 /** Côté de la plateforme carrée. */
@@ -80,6 +80,49 @@ export function lookoutFootprint(site: Vector3, pad: number): Box[] {
       minZ: z + SCREEN.z - 0.6 - pad, maxZ: z + SCREEN.z + 0.4 + pad,
     },
   ];
+}
+
+/**
+ * Plancher en hauteur : l'escalier, en pente du sol jusqu'au plancher, puis
+ * la plateforme. On y monte par le bas des marches ; le garde-corps est le
+ * bord de ces surfaces, on ne l'enjambe pas.
+ */
+export function lookoutWalkways(site: Vector3): Walkway[] {
+  const { x, z } = site;
+  const e = DECK / 2 - 0.15;
+  const stairs: Walkway = {
+    box: { minX: x + STAIR_X - STAIR_W / 2 + 0.08, maxX: x + STAIR_X + STAIR_W / 2 - 0.08, minZ: z + STAIR_BOTTOM_Z - 0.6, maxZ: z + STAIR_TOP_Z },
+    height: (_px, pz) => DECK_H * Math.min(1, Math.max(0, (pz - z - STAIR_BOTTOM_Z) / STAIR_LEN)),
+  };
+  const deck: Walkway = {
+    // Déborde un peu sur l'escalier : on passe de l'un à l'autre sans trou.
+    box: { minX: x - e, maxX: x + DECK / 2 + 0.12, minZ: z - e, maxZ: z + e },
+    height: () => DECK_H,
+    // Le pupitre, devant le poste de l'orchestrateur.
+    blocked: [{ minX: x - 0.85, maxX: x + 0.85, minZ: z + DECK / 2 - 0.9, maxZ: z + DECK / 2 }],
+  };
+  return [stairs, deck];
+}
+
+/**
+ * Ce qui bloque au sol pour qui se promène : les pieds du belvédère, le bas
+ * de l'escalier (trop bas pour passer dessous), le tableau, l'écran. On
+ * passe sous la plateforme, entre ses pieds.
+ */
+export function lookoutGroundObstacles(site: Vector3, pad: number): Box[] {
+  const { x, z } = site;
+  const p = DECK / 2 - 0.2;
+  const legs = [[p, p], [-p, p], [p, -p], [-p, -p]].map(([lx, lz]): Box => ({
+    minX: x + lx - 0.13 - pad, maxX: x + lx + 0.13 + pad, minZ: z + lz - 0.13 - pad, maxZ: z + lz + 0.13 + pad,
+  }));
+  // Sous l'escalier, on ne passe que là où les marches dépassent 2,2 m.
+  const headroom = STAIR_BOTTOM_Z + (2.2 / DECK_H) * STAIR_LEN;
+  const lowStairs: Box = {
+    minX: x + STAIR_X - STAIR_W / 2 - pad, maxX: x + STAIR_X + STAIR_W / 2 + pad,
+    minZ: z + STAIR_BOTTOM_Z + 0.05, maxZ: z + headroom,
+  };
+  const [, board, screen] = lookoutFootprint(site, pad);
+  return [...legs, lowStairs, board, screen];
 }
 
 /**

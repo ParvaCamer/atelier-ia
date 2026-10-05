@@ -508,6 +508,9 @@ position physique (ZQSD en AZERTY = WASD en QWERTY), Maj pour courir, `V`
 pour basculer, Échap pour remonter. Mêmes collisions que les agents ; on
 descend des plateformes pour passer d'une zone à l'autre ; s'approcher
 d'un agent affiche sa fiche. Purement visuel : le moteur n'en sait rien.
+On monte sur le belvédère par son escalier (`lookoutWalkways`) : des
+planchers en hauteur, qu'on rejoint ou quitte seulement à portée de pas —
+le garde-corps ne s'enjambe pas — et l'on passe dessous, entre ses pieds.
 
 Équipements de décor (`furniture.ts`) : silos, conteneur, caisses,
 tuyauterie, générateur, projecteurs, posés par le plan dans les espaces
