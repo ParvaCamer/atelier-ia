@@ -744,6 +744,37 @@ commande supplémentaire. Le graphe est celui de l'éditeur
 dépendances reste `queued`. Accès : Historique, compteur « workflows » de
 l'en-tête, ligne « Workflow » du panneau d'agent.
 
+## Rendus visuels et aperçus en direct (implémentés)
+
+Deux sources, réunies par projet dans la **visionneuse** (bouton « Rendus »)
+et sur l'**écran géant** planté à côté du belvédère :
+
+- **Images produites** (`crates/engine/src/renders.rs`, table `renders`,
+  migration 0013). À la fin d'une tâche réussie, avant qu'elle soit
+  déclarée terminée, le moteur relève dans son dossier de travail les
+  images (png, jpg, webp, gif, svg) créées ou modifiées depuis son
+  démarrage : slides, maquettes, captures d'une app. Rien à déclarer côté
+  agent — une étape sans IA qui génère des slides en produit autant. Ordre
+  naturel des fichiers (slide-2 avant slide-10), 24 au plus par tâche,
+  15 Mo au plus par image, dépendances et dossiers de compilation ignorés,
+  liens symboliques non suivis. L'interface ne lit jamais un chemin :
+  `render_data` sert un rendu *enregistré*, en URL `data:`, après avoir
+  revérifié qu'il est toujours dans le dossier du projet.
+- **Aperçu en direct** : `Project.preview_url`, l'adresse du site du
+  projet (serveur local ou en ligne), saisie dans Réglages › Projets et
+  validée par le moteur (http/https, sans identifiants). Affiché tel quel
+  dans un `iframe` en bac à sable.
+
+L'écran géant (`src/world/ScreenLayer.ts`) montre le projet sur lequel un
+run tourne s'il a quelque chose à montrer, sinon celui des derniers rendus :
+son site en direct — un vrai document posé en 3D par `CSS3DRenderer`, au
+lieu de la dalle, seulement face à la caméra et d'assez près —, sinon le
+carrousel de ses images (5 s chacune). Un clic l'ouvre dans la visionneuse.
+Une app native (macOS) ne s'intègre pas dans la webview : son rendu passe
+par des captures que ses tâches produisent (étape `screencapture`).
+
+---
+
 ## Relais entre agents (implémenté)
 
 Quand une tâche terminée en débloque une autre, le scheduler consigne un

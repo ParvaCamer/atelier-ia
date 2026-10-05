@@ -138,6 +138,9 @@ impl Engine {
             Ok(summary) => {
                 let _ = repo::tasks::set_outcome(self.db(), &task.id, Some(&summary), None).await;
                 self.set_task_progress(agent, &task.id, 1.0).await;
+                // Avant de déclarer la tâche finie : qui voit « terminée »
+                // trouve déjà ses rendus.
+                self.collect_renders(&task).await;
                 self.finish(&task, TaskStatus::Completed).await;
                 self.set_agent_state(agent, AgentStatus::Completed, Activity::None).await;
                 log(format!("✓ {}", task.title));

@@ -12,7 +12,7 @@ import type {
   Project, ProjectId, ProviderConfig, ProviderHealth, PtyId, RouteTest, Run, RunId, Task,
   TaskControl, TaskId, ToolInfo, Workflow, WorkflowId, WorldSnapshot,
   MemoryEntry, MemoryFilter, MemoryId, MemoryView, RunDetail, RunFilter, RunSummary,
-  Schedule, ScheduleId, TeamTemplate, WorkflowCheck, FileWatch, WatchId, CostSummary, Todo, TodoId,
+  Schedule, ScheduleId, TeamTemplate, WorkflowCheck, FileWatch, WatchId, CostSummary, Todo, TodoId, Render, RenderId,
 } from "./generated";
 
 export type GrantPresetName = "none" | "read-only" | "developer";
@@ -124,6 +124,12 @@ export const api = {
   /** Trancher une proposition de chef à la place de l'orchestrateur. */
   decideTodo: (todoId: TodoId, accept: boolean) => invoke<Todo>("decide_todo", { todoId, accept }),
   cancelTodo: (todoId: TodoId) => invoke<Todo>("cancel_todo", { todoId }),
+
+  // --- rendus visuels ---
+  /** Les plus récents d'abord, groupés par tâche. */
+  listRenders: (limit?: number) => invoke<Render[]>("list_renders", { limit: limit ?? null }),
+  /** Contenu d'un rendu, en URL `data:` : le moteur seul lit le disque. */
+  renderData: (renderId: RenderId) => invoke<string>("render_data", { renderId }),
 };
 
 /** Noms d'événements — dupliqués dans src-tauri/src/events.rs. */

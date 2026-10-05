@@ -113,6 +113,8 @@ pub fn run() {
             commands::phase4::add_todo,
             commands::phase4::decide_todo,
             commands::phase4::cancel_todo,
+            commands::phase4::list_renders,
+            commands::phase4::render_data,
             commands::phase4::list_watches,
             commands::phase4::save_watch,
             commands::phase4::delete_watch,

@@ -7,6 +7,7 @@ import { Terminal } from "../ui/Terminal";
 import { WorldCanvas } from "../ui/WorldCanvas";
 import { Settings } from "../ui/settings/Settings";
 import { History } from "../ui/history/History";
+import { RenderViewer } from "../ui/renders/RenderViewer";
 
 export function App() {
   const ready = useWorld((s) => s.ready);
@@ -53,6 +54,7 @@ export function App() {
       </div>
       <Settings />
       <History />
+      <RenderViewer />
       {!collapsed && (
         <button
           className="dock-toggle"

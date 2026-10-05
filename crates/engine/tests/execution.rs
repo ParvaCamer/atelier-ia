@@ -32,6 +32,7 @@ async fn world(grants: &[(&str, ResourceScope, Mode)], agents: usize) -> World {
         description: String::new(),
         root_path: Some(root.to_string_lossy().into()),
         git_remote: None,
+        preview_url: None,
         color: "#ffffff".into(),
         zone: Zone::new(0.0, 0.0, 10.0, 10.0),
         archived: false,
@@ -473,4 +474,47 @@ fn orchestrateur_revient_au_repos_quand_plus_rien_ne_tourne() {
     world.drop_run(&run.id);
     assert_eq!(world.orchestrator().status, OrchestratorStatus::Idle, "plus rien à suivre");
     assert_eq!(world.orchestrator().project_id, None);
+}
+
+/// Une étape sans IA qui produit des slides : ses images sont relevées dans
+/// l'ordre des fichiers, et seulement celles qu'elle a créées ou modifiées.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rendus_visuels_releves_a_la_fin_d_une_tache() {
+    let w = world(&[("shell.exec", cmd("cp"), Mode::Allow)], 1).await;
+    // Une image antérieure à la tâche : elle n'est pas un rendu de la tâche.
+    let old = w.root.join("ancien.png");
+    std::fs::write(&old, b"png-ancien").unwrap();
+    let past = std::time::SystemTime::now() - Duration::from_secs(3600);
+    std::fs::File::options().write(true).open(&old).unwrap().set_modified(past).unwrap();
+    std::fs::create_dir_all(w.root.join("node_modules")).unwrap();
+    std::fs::write(w.root.join("notes.txt"), b"texte").unwrap();
+
+    let wf = save_workflow(&w, vec![step("slides", &w.agents[0], &[], &[
+        "cp ancien.png slide-10.png",
+        "cp ancien.png slide-2.png",
+        "cp ancien.png node_modules/ignore.png",
+        "cp notes.txt notes-copie.txt",
+    ])]).await;
+    let run = w.engine.launch_workflow(&wf).await.unwrap();
+    let task = first_task(&w, &run).await;
+    wait_for(&w, &task.id, TaskStatus::Completed).await;
+
+    let renders = w.engine.list_renders(50).await.unwrap();
+    let paths: Vec<&str> = renders.iter().map(|r| r.path.as_str()).collect();
+    assert_eq!(paths, vec!["slide-2.png", "slide-10.png"], "ordre naturel, ni l'ancienne image, ni les dépendances, ni le texte");
+    assert!(renders.iter().all(|r| r.task_id == task.id && r.run_id == run && r.title == "Étape slides"));
+
+    let data = w.engine.render_data(&renders[0].id).await.unwrap();
+    assert!(data.starts_with("data:image/png;base64,"), "{data}");
+
+    // Un rendu remplacé par un lien qui sort du projet n'est plus servi.
+    #[cfg(unix)]
+    {
+        let outside = std::env::temp_dir().join(format!("atelier-dehors-{}.png", uuid::Uuid::now_v7()));
+        std::fs::write(&outside, b"secret").unwrap();
+        std::fs::remove_file(w.root.join("slide-2.png")).unwrap();
+        std::os::unix::fs::symlink(&outside, w.root.join("slide-2.png")).unwrap();
+        let err = w.engine.render_data(&renders[0].id).await.unwrap_err().to_string();
+        assert!(err.contains("hors du dossier"), "{err}");
+    }
 }

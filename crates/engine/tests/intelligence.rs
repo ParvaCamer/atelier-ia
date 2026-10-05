@@ -63,6 +63,7 @@ async fn add_project(db: &Db, name: &str, description: &str, agents: &[&str], gr
         description: description.into(),
         root_path: Some(root.canonicalize().unwrap().to_string_lossy().into()),
         git_remote: None,
+        preview_url: None,
         color: "#fff".into(),
         zone: Zone::new(0.0, 0.0, 10.0, 10.0),
         archived: false,

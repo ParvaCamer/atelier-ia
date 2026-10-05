@@ -12,6 +12,11 @@ export type Project = { id: ProjectId, name: string, description: string,
  */
 rootPath: string | null, gitRemote: string | null, 
 /**
+ * Aperçu en direct : adresse http(s) du rendu du projet (site local ou
+ * en ligne), affichée telle quelle dans l'écran géant et la visionneuse.
+ */
+previewUrl: string | null, 
+/**
  * Couleur d'accent de la zone (hex). Purement visuel.
  */
 color: string, 

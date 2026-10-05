@@ -26,6 +26,7 @@ async fn demande_reelle_de_bout_en_bout() {
         description: "Notes de voyage de l'équipe".into(),
         root_path: Some(root.to_string_lossy().into()),
         git_remote: None,
+        preview_url: None,
         color: "#fff".into(),
         zone: Zone::new(0.0, 0.0, 10.0, 10.0),
         archived: false,

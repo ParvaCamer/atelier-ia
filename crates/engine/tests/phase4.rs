@@ -57,7 +57,7 @@ async fn world_with(replies: Vec<Value>, extraction_down: bool, embedder: Option
     std::fs::create_dir_all(&root).unwrap();
     let project = Project {
         id: ProjectId::new(), name: "Mémo".into(), description: "projet de test".into(),
-        root_path: Some(root.canonicalize().unwrap().to_string_lossy().into()), git_remote: None,
+        root_path: Some(root.canonicalize().unwrap().to_string_lossy().into()), git_remote: None, preview_url: None,
         color: "#fff".into(), zone: Zone::new(0.0, 0.0, 10.0, 10.0), archived: false,
     };
     repo::projects::upsert(&db, &project).await.unwrap();
@@ -479,7 +479,7 @@ async fn surveillance_refusee_sans_dossier_de_projet() {
     assert!(w.engine.save_watch(watch(wf.clone(), &["*"], 0)).await.unwrap_err().to_string().contains("anti-rebond"));
 
     let bare = Project {
-        id: ProjectId::new(), name: "Sans dossier".into(), description: String::new(), root_path: None, git_remote: None,
+        id: ProjectId::new(), name: "Sans dossier".into(), description: String::new(), root_path: None, git_remote: None, preview_url: None,
         color: "#fff".into(), zone: Zone::new(50.0, 50.0, 10.0, 10.0), archived: false,
     };
     repo::projects::upsert(w.engine.db(), &bare).await.unwrap();

@@ -27,4 +27,4 @@ macro_rules! define_id {
     )*};
 }
 
-define_id!(ProjectId, AgentId, WorkflowId, RunId, TaskId, ToolCallId, ApprovalId, MemoryId, LogId, PtyId, ScheduleId, HandoffId, WatchId, TodoId);
+define_id!(ProjectId, AgentId, WorkflowId, RunId, TaskId, ToolCallId, ApprovalId, MemoryId, LogId, PtyId, ScheduleId, HandoffId, WatchId, TodoId, RenderId);

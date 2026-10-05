@@ -10,6 +10,7 @@ fn map(row: &sqlx::sqlite::SqliteRow) -> Project {
         description: row.get("description"),
         root_path: row.get("root_path"),
         git_remote: row.get("git_remote"),
+        preview_url: row.get("preview_url"),
         color: row.get("color"),
         zone: Zone {
             x: row.get::<f64, _>("zone_x") as f32,
@@ -40,13 +41,13 @@ pub async fn get(db: &Db, id: &ProjectId) -> Result<Project> {
 pub async fn upsert(db: &Db, p: &Project) -> Result<()> {
     sqlx::query(
         "INSERT INTO projects (id, name, description, root_path, git_remote, color,
-                               zone_x, zone_z, zone_w, zone_d, archived, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                               zone_x, zone_z, zone_w, zone_d, archived, created_at, preview_url)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(id) DO UPDATE SET
             name=excluded.name, description=excluded.description, root_path=excluded.root_path,
             git_remote=excluded.git_remote, color=excluded.color, zone_x=excluded.zone_x,
             zone_z=excluded.zone_z, zone_w=excluded.zone_w, zone_d=excluded.zone_d,
-            archived=excluded.archived",
+            archived=excluded.archived, preview_url=excluded.preview_url",
     )
     .bind(p.id.as_str())
     .bind(&p.name)
@@ -60,6 +61,7 @@ pub async fn upsert(db: &Db, p: &Project) -> Result<()> {
     .bind(p.zone.depth as f64)
     .bind(p.archived as i64)
     .bind(Utc::now().to_rfc3339())
+    .bind(&p.preview_url)
     .execute(db.pool())
     .await?;
     Ok(())

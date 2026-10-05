@@ -946,3 +946,37 @@ select.input { appearance: none; padding-right: 22px; background-image: linear-g
 .teams .field-hint { display: block; max-width: 620px; margin-bottom: 10px; }
 .teams-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .teams-row .btn small { color: var(--text-faint); margin-left: 2px; }
+
+/* ---------------------------------- rendus ---------------------------------- */
+
+.renders-viewer .settings-nav-item[data-active="true"] { background: rgba(148, 178, 220, 0.08); color: var(--text); }
+.renders-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 0 24px 20px; }
+.renders-head { display: flex; align-items: center; gap: 16px; padding: 40px 0 14px; }
+.renders-head h1 { margin: 0; font-size: 18px; font-weight: 620; }
+.renders-tabs { position: static; }
+.renders-empty { color: var(--text-faint); font-size: 13px; line-height: 1.6; max-width: 560px; padding-top: 30px; }
+.renders-site { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.renders-address { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-dim); min-width: 0; }
+.renders-address code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.renders-frame { flex: 1; min-height: 0; width: 100%; border: 1px solid var(--border-strong); border-radius: 10px; background: #fff; }
+.renders-carousel { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.renders-bar { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.renders-bar select { width: auto; max-width: 420px; margin: 0; }
+.renders-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+.renders-count { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: 12px; }
+.renders-stage { flex: 1; min-height: 0; display: flex; align-items: center; gap: 10px; }
+.renders-image { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; justify-content: center; }
+.renders-image img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); }
+.renders-nav { width: 40px; height: 64px; border-radius: 10px; font-size: 30px; color: var(--text-dim); border: 1px solid var(--border); flex: none; }
+.renders-nav:hover:not(:disabled) { color: var(--text); background: rgba(148, 178, 220, 0.08); }
+.renders-nav:disabled { opacity: 0.3; cursor: default; }
+.renders-thumbs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; flex: none; }
+.renders-thumb { flex: none; width: 112px; height: 63px; border-radius: 6px; overflow: hidden; border: 2px solid transparent; background: rgba(148, 178, 220, 0.06); color: var(--text-faint); }
+.renders-thumb[data-active="true"] { border-color: var(--accent); }
+.renders-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Site en direct posé sur l'écran géant : un vrai document, placé en 3D
+   par-dessus le canvas. Jamais cliquable : la caméra garde la main, un clic
+   sur l'écran ouvre la visionneuse. */
+.world-css { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; }
+.world-css iframe { border: 0; background: #fff; pointer-events: none; }

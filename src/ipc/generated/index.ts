@@ -36,6 +36,8 @@ export type { ProjectId } from "./ProjectId";
 export type { ProviderConfig } from "./ProviderConfig";
 export type { ProviderHealth } from "./ProviderHealth";
 export type { PtyId } from "./PtyId";
+export type { Render } from "./Render";
+export type { RenderId } from "./RenderId";
 export type { ResourceScope } from "./ResourceScope";
 export type { RouteTest } from "./RouteTest";
 export type { Run } from "./Run";

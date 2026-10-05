@@ -3,6 +3,7 @@ import { CommandBar } from "./CommandBar";
 import { useConfig } from "../state/config";
 import { useHistory } from "../state/history";
 import { useTodos } from "../state/todos";
+import { useRenders } from "../state/renders";
 
 interface Props {
   onFocusProject: (projectId: string) => void;
@@ -59,6 +60,9 @@ export function Header({ onFocusProject, onFrameAll }: Props) {
         title={proposals ? `${proposals} proposition(s) de chef à examiner` : "Tâches que l'orchestrateur lira et exécutera"}
       >
         <b>{openTodos}</b> au tableau
+      </button>
+      <button className="gear" onClick={() => useRenders.getState().show()} title="Sites en direct, slides et captures produits par les projets">
+        Rendus
       </button>
       <button className="gear" onClick={() => useHistory.getState().show()} title="Exécutions passées, actions et décisions">
         Historique

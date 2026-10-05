@@ -26,6 +26,8 @@ const STAIR_LEN = 7.8;
 const STAIR_BOTTOM_Z = STAIR_TOP_Z - STAIR_LEN;
 /** Tableau de tâches, planté au pied du belvédère, côté gauche. */
 export const BOARD = { x: -DECK / 2 - 3.1, z: 1.1, width: 3.8, height: 2.3, bottom: 1.05 };
+/** Écran géant des rendus, de l'autre côté de l'escalier, face aux projets. */
+export const SCREEN = { x: DECK / 2 + 9.3, z: 0.5, width: 9.6, height: 5.4, bottom: 2.6 };
 /** Distance entre le bord des plateformes et celui du belvédère. */
 const SETBACK = 5;
 
@@ -64,7 +66,7 @@ export const STAIR_PATH: readonly Vector3[] = [
   new Vector3(STAIR_X, 0, STAIR_BOTTOM_Z - 0.7),
 ];
 
-/** Emprise au sol (locale) : plateforme et escalier, puis le tableau. */
+/** Emprise au sol : plateforme et escalier, le tableau, l'écran géant. */
 export function lookoutFootprint(site: Vector3, pad: number): Box[] {
   const { x, z } = site;
   return [
@@ -72,6 +74,10 @@ export function lookoutFootprint(site: Vector3, pad: number): Box[] {
     {
       minX: x + BOARD.x - BOARD.width / 2 - pad, maxX: x + BOARD.x + BOARD.width / 2 + pad,
       minZ: z + BOARD.z - 0.3 - pad, maxZ: z + BOARD.z + 0.3 + pad,
+    },
+    {
+      minX: x + SCREEN.x - SCREEN.width / 2 - 0.4 - pad, maxX: x + SCREEN.x + SCREEN.width / 2 + 0.4 + pad,
+      minZ: z + SCREEN.z - 0.6 - pad, maxZ: z + SCREEN.z + 0.4 + pad,
     },
   ];
 }

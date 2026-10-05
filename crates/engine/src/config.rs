@@ -144,12 +144,14 @@ impl Engine {
             }
         }
 
+        let preview_url = preview_url(draft.preview_url.as_deref(), &name)?;
         let project = Project {
             id: existing.map(|p| p.id.clone()).unwrap_or_else(ProjectId::new),
             name,
             description: draft.description.trim().to_string(),
             root_path,
             git_remote: draft.git_remote.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+            preview_url,
             color: if is_hex_color(&draft.color) { draft.color } else { "#5eead4".into() },
             // La position est une décision du moteur, pas de l'interface :
             // un nouveau projet prend le premier emplacement libre.
@@ -1070,6 +1072,27 @@ fn expand_home(path: &str) -> String {
         Some(rest) => format!("{}/{rest}", std::env::var("HOME").unwrap_or_default()),
         None => path.to_string(),
     }
+}
+
+/// Adresse d'aperçu : http(s) seulement, sans identifiants. Un mot de passe
+/// dans une URL finirait en clair dans la base — il n'y en a jamais ici.
+fn preview_url(raw: Option<&str>, project: &str) -> anyhow::Result<Option<String>> {
+    let Some(url) = raw.map(str::trim).filter(|s| !s.is_empty()) else { return Ok(None) };
+    let rest = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+        .ok_or_else(|| anyhow::anyhow!("aperçu de {project} : l'adresse doit commencer par http:// ou https:// (ex. http://localhost:3000)"))?;
+    if url.chars().any(char::is_whitespace) || url.len() > 500 {
+        anyhow::bail!("aperçu de {project} : adresse invalide, sans espace et en moins de 500 caractères");
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.contains('@') {
+        anyhow::bail!("aperçu de {project} : retire l'identifiant et le mot de passe de l'adresse, ils ne doivent pas être enregistrés");
+    }
+    if authority.is_empty() || authority.starts_with(':') {
+        anyhow::bail!("aperçu de {project} : il manque le nom du serveur (ex. http://localhost:3000)");
+    }
+    Ok(Some(url.to_string()))
 }
 
 fn is_hex_color(s: &str) -> bool {

@@ -30,6 +30,7 @@ fn project_draft(name: &str, root: Option<String>) -> Project {
         description: "desc".into(),
         root_path: root,
         git_remote: None,
+        preview_url: None,
         color: "#60a5fa".into(),
         zone: Zone::new(0.0, 0.0, 1.0, 1.0),
         archived: false,
@@ -644,4 +645,31 @@ async fn dossier_de_travail_d_une_etape_borne_au_projet() {
     let run = e.launch_workflow(&saved.id).await.unwrap();
     let tasks = repo::tasks::list_by_run(e.db(), &run).await.unwrap();
     assert_eq!(tasks[0].cwd.as_deref(), Some("tethr-motion"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn apercu_d_un_projet_valide_par_le_moteur() {
+    let e = engine().await;
+    let mut draft = project_draft("Nuea", None);
+    draft.preview_url = Some("  http://localhost:3000/accueil  ".into());
+    let saved = e.save_project(draft.clone()).await.unwrap();
+    assert_eq!(saved.preview_url.as_deref(), Some("http://localhost:3000/accueil"), "adresse nettoyée");
+    assert_eq!(repo::projects::get(e.db(), &saved.id).await.unwrap().preview_url, saved.preview_url, "persistée");
+
+    for (url, attendu) in [
+        ("file:///etc/passwd", "http:// ou https://"),
+        ("javascript:alert(1)", "http:// ou https://"),
+        ("https://moi:secret@nuea.fr", "identifiant"),
+        ("http://", "nom du serveur"),
+        ("http://nuea .fr", "sans espace"),
+    ] {
+        let mut d = saved.clone();
+        d.preview_url = Some(url.into());
+        let err = e.save_project(d).await.unwrap_err().to_string();
+        assert!(err.contains(attendu) && err.contains("Nuea"), "{url} → {err}");
+    }
+
+    let mut vide = saved.clone();
+    vide.preview_url = Some("   ".into());
+    assert_eq!(e.save_project(vide).await.unwrap().preview_url, None, "champ vide = pas d'aperçu");
 }

@@ -17,19 +17,50 @@ export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+/* Aperçu en direct simulé : une page de site complète, servie en `data:`
+   puisque le harnais n'a pas de serveur de développement à montrer. */
+const MOCK_SITE = "data:text/html;charset=utf-8," + encodeURIComponent(`<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<style>body{margin:0;font-family:system-ui,sans-serif;color:#1e1b4b;background:#faf5ff}nav{display:flex;gap:28px;align-items:center;padding:22px 48px;background:#fff;box-shadow:0 1px 0 #e9d5ff}
+nav b{font-size:22px;color:#7c3aed;margin-right:auto}section{padding:80px 48px;display:grid;grid-template-columns:1.2fr 1fr;gap:48px;align-items:center}
+h1{font-size:56px;line-height:1.05;margin:0 0 18px}p{font-size:19px;color:#5b5675}a.cta{display:inline-block;margin-top:18px;padding:14px 26px;border-radius:12px;background:#7c3aed;color:#fff;text-decoration:none;font-weight:600}
+.card{height:320px;border-radius:24px;background:linear-gradient(135deg,#a78bfa,#f472b6);box-shadow:0 30px 60px -20px #7c3aed88}.row{display:flex;gap:18px;padding:0 48px 60px}.row div{flex:1;height:120px;border-radius:16px;background:#fff;box-shadow:0 1px 0 #e9d5ff}</style></head>
+<body><nav><b>Agency</b><span>Projets</span><span>Équipe</span><span>Contact</span></nav><section><div><h1>Des sites qui donnent envie de rester.</h1><p>Conception, développement et référencement pour les marques qui comptent.</p><a class="cta" href="#">Démarrer un projet</a></div><div class="card"></div></section><div class="row"><div></div><div></div><div></div></div></body></html>`);
+
+/** Slide de présentation simulée, en SVG : de quoi juger le carrousel. */
+function mockSlide(i: number, total: number, title: string, color: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1e1b2e"/><stop offset="1" stop-color="${color}"/></linearGradient></defs>
+<rect width="1600" height="900" fill="url(#g)"/><circle cx="${1250 - i * 60}" cy="${300 + i * 40}" r="${220 + i * 18}" fill="#ffffff14"/>
+<text x="110" y="200" font-family="system-ui,sans-serif" font-size="36" fill="#ffffffaa" letter-spacing="6">SLIDE ${i} / ${total}</text>
+<text x="110" y="420" font-family="system-ui,sans-serif" font-size="104" font-weight="800" fill="#fff">${title}</text>
+<rect x="110" y="500" width="${300 + i * 90}" height="14" rx="7" fill="#ffffffcc"/><rect x="110" y="540" width="520" height="14" rx="7" fill="#ffffff66"/></svg>`;
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+}
+
+const SLIDES = ["Le constat", "Notre approche", "Trois piliers", "Calendrier", "Ce qu'on attend de vous"];
+const MOCK_RENDERS = SLIDES.map((title, i) => ({
+  id: `rd${i}`, runId: "r2", taskId: "t-slides", projectId: "p5", title: "Présentation de lancement",
+  path: `presentation/slide-${i + 1}.svg`, sizeBytes: 48_000, createdAt: new Date(Date.now() - 20 * 60_000).toISOString(),
+  data: mockSlide(i + 1, SLIDES.length, title, "#f472b6"),
+})).concat(["Accueil", "Recherche"].map((title, i) => ({
+  id: `rs${i}`, runId: "r3", taskId: "t-captures", projectId: "p1", title: "Captures de l'app",
+  path: `captures/ecran-${i + 1}.svg`, sizeBytes: 31_000, createdAt: new Date(Date.now() - 90 * 60_000).toISOString(),
+  data: mockSlide(i + 1, 2, title, "#5eead4"),
+})));
+
 const PROJECTS: Project[] = [
-  { id: "p1", name: "Spotly", description: "", rootPath: null, gitRemote: null,
+  { id: "p1", name: "Spotly", description: "", rootPath: null, gitRemote: null, previewUrl: null,
     color: "#5eead4", zone: { x: -17, z: -12, width: 28, depth: 20 }, archived: false },
-  { id: "p2", name: "Agency", description: "", rootPath: null, gitRemote: null,
+  { id: "p2", name: "Agency", description: "", rootPath: null, gitRemote: null, previewUrl: MOCK_SITE,
     color: "#a78bfa", zone: { x: 17, z: -12, width: 28, depth: 20 }, archived: false },
-  { id: "p3", name: "Personnel", description: "", rootPath: null, gitRemote: null,
+  { id: "p3", name: "Personnel", description: "", rootPath: null, gitRemote: null, previewUrl: null,
     color: "#fbbf24", zone: { x: -17, z: 12, width: 28, depth: 20 }, archived: false },
-  { id: "p4", name: "Infrastructure", description: "", rootPath: null, gitRemote: null,
+  { id: "p4", name: "Infrastructure", description: "", rootPath: null, gitRemote: null, previewUrl: null,
     color: "#f87171", zone: { x: 17, z: 12, width: 28, depth: 20 }, archived: false },
   // Cinquième projet, comme dans l'application réelle : la zone part sur une
   // troisième rangée, loin du centre — c'est là que se cachent les bugs de
   // cadrage et de sélection.
-  { id: "p5", name: "Studio", description: "", rootPath: null, gitRemote: null,
+  { id: "p5", name: "Studio", description: "", rootPath: null, gitRemote: null, previewUrl: null,
     color: "#f472b6", zone: { x: -17, z: 36, width: 28, depth: 20 }, archived: false },
 ];
 
@@ -490,6 +521,12 @@ export function installDevMock() {
         Object.assign(todo, { status: "cancelled", note: "retirée par toi", updatedAt: new Date().toISOString() });
         todosChanged();
         return todo;
+      }
+      case "list_renders": return MOCK_RENDERS.map(({ data: _, ...r }) => r);
+      case "render_data": {
+        const r = MOCK_RENDERS.find((x) => x.id === args.renderId);
+        if (!r) throw "rendu introuvable : il a peut-être été supprimé avec son run";
+        return r.data;
       }
       case "list_projects": return PROJECTS;
       case "list_agents": return AGENTS;

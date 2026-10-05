@@ -10,7 +10,7 @@ import { Area, Feedback, Field, Text, Toggle, useJob } from "./fields";
 const COLORS = ["#5eead4", "#a78bfa", "#fbbf24", "#f87171", "#60a5fa", "#34d399", "#f472b6", "#fb923c"];
 
 const blank = (): Project => ({
-  id: "" as ProjectId, name: "", description: "", rootPath: null, gitRemote: null,
+  id: "" as ProjectId, name: "", description: "", rootPath: null, gitRemote: null, previewUrl: null,
   color: COLORS[4], zone: { x: 0, z: 0, width: 28, depth: 20 }, archived: false,
 });
 
@@ -95,6 +95,12 @@ export function ProjectsPanel() {
             </Field>
             <Field label="Dépôt Git" wide hint="Informatif pour l'instant.">
               <Text mono value={draft.gitRemote ?? ""} onChange={(v) => patch({ gitRemote: v || null })} placeholder="git@github.com:moi/spotly.git" />
+            </Field>
+            <Field
+              label="Aperçu en direct" wide
+              hint="Adresse du rendu du projet — son site en local ou en ligne. Affiché tel quel sur l'écran géant et dans la visionneuse. Les images produites par les tâches (slides, captures de l'app) s'y ajoutent d'elles-mêmes."
+            >
+              <Text mono value={draft.previewUrl ?? ""} onChange={(v) => patch({ previewUrl: v || null })} placeholder="http://localhost:3000" />
             </Field>
             {draft.id && (
               <Field label="État" wide hint="Un projet archivé disparaît du monde ; son historique est conservé.">

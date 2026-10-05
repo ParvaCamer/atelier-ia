@@ -14,6 +14,10 @@ pub struct Project {
     /// Racine locale du projet, canonicalisée. `None` = projet sans filesystem.
     pub root_path: Option<String>,
     pub git_remote: Option<String>,
+    /// Aperçu en direct : adresse http(s) du rendu du projet (site local ou
+    /// en ligne), affichée telle quelle dans l'écran géant et la visionneuse.
+    #[serde(default)]
+    pub preview_url: Option<String>,
     /// Couleur d'accent de la zone (hex). Purement visuel.
     pub color: String,
     /// Position de la zone dans le monde. Le moteur ne s'en sert jamais ;

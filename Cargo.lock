@@ -243,6 +243,7 @@ dependencies = [
  "atelier-providers",
  "atelier-store",
  "atelier-tools",
+ "base64 0.22.1",
  "chrono",
  "croner",
  "reqwest",

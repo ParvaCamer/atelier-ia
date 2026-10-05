@@ -203,15 +203,23 @@ export class OrchestratorLayer {
     this.toPost();
   }
 
-  /** Emprise du belvédère et du tableau : agents et visiteur les contournent. */
+  /** Site du belvédère, pour les équipements plantés à côté (écran géant). */
+  siteOf(): Vector3 {
+    return this.site;
+  }
+
+  /** Emprise du belvédère, du tableau et de l'écran : agents et visiteur les contournent. */
   footprint(): Box[] {
     return lookoutFootprint(this.site, AGENT_RADIUS);
   }
 
   /** Centre et étendue, pour que le cadrage d'ensemble l'inclue. */
   bounds(): Box {
-    const [deck, board] = lookoutFootprint(this.site, 1);
-    return { minX: Math.min(deck.minX, board.minX), maxX: deck.maxX, minZ: deck.minZ, maxZ: Math.max(deck.maxZ, board.maxZ) };
+    const all = lookoutFootprint(this.site, 1);
+    return {
+      minX: Math.min(...all.map((b) => b.minX)), maxX: Math.max(...all.map((b) => b.maxX)),
+      minZ: Math.min(...all.map((b) => b.minZ)), maxZ: Math.max(...all.map((b) => b.maxZ)),
+    };
   }
 
   /** Cap visé : vers le projet concerné, sinon vers la caméra. */

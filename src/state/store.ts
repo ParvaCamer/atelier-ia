@@ -13,6 +13,7 @@ import type {
 } from "../ipc";
 import { api, onDomainEvent, onLogs, onSnapshot } from "../ipc";
 import { useTodos } from "./todos";
+import { useRenders } from "./renders";
 
 /** Nombre de lignes gardées en mémoire par vue. Le reste vit en base. */
 const LOG_BUFFER = 2000;
@@ -121,6 +122,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     });
 
     await useTodos.getState().load();
+    await useRenders.getState().load();
     await onSnapshot((s) => set({ snapshot: s }));
 
     await onLogs((lines) => {
@@ -133,6 +135,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     await onDomainEvent(async (e) => {
       if (e.type === "configChanged") await get().reloadConfig();
       if (e.type === "todosChanged") await useTodos.getState().load();
+      if (e.type === "rendersChanged") await useRenders.getState().load();
       if (e.type === "handoff") {
         const now = performance.now();
         const relay: Relay = { id: e.id, fromAgent: e.fromAgent, toAgent: e.toAgent, at: now };

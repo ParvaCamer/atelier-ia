@@ -24,6 +24,7 @@ tokio-util.workspace = true
 shell-words.workspace = true
 reqwest.workspace = true
 croner.workspace = true
+base64.workspace = true
 
 [dev-dependencies]
 sqlx.workspace = true

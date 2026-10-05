@@ -1,4 +1,4 @@
-//! Historique, mémoire, planifications, tableau de l'orchestrateur.
+//! Historique, mémoire, planifications, tableau de l'orchestrateur, rendus.
 
 use crate::state::{err, AppState, CmdResult};
 use atelier_domain::*;
@@ -93,4 +93,14 @@ pub async fn decide_todo(state: State<'_, AppState>, todo_id: TodoId, accept: bo
 #[tauri::command]
 pub async fn cancel_todo(state: State<'_, AppState>, todo_id: TodoId) -> CmdResult<Todo> {
     state.engine.cancel_todo(&todo_id).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn list_renders(state: State<'_, AppState>, limit: Option<u32>) -> CmdResult<Vec<Render>> {
+    state.engine.list_renders(limit.unwrap_or(120)).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn render_data(state: State<'_, AppState>, render_id: RenderId) -> CmdResult<String> {
+    state.engine.render_data(&render_id).await.map_err(err)
 }

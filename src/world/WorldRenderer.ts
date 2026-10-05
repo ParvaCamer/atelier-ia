@@ -12,6 +12,9 @@ import {
 import { useConfig } from "../state/config";
 import { useHistory } from "../state/history";
 import { useTodos } from "../state/todos";
+import { groupRenders, useRenders } from "../state/renders";
+import { CSS3DRenderer } from "three/examples/jsm/renderers/CSS3DRenderer.js";
+import { ScreenLayer, type ScreenContent } from "./ScreenLayer";
 import { useWorld } from "../state/store";
 import { AgentLayer } from "./AgentLayer";
 import { OrchestratorLayer } from "./OrchestratorLayer";
@@ -43,8 +46,10 @@ export interface WorldOptions {
   onModeChange?: (mode: ViewMode) => void;
   /** Clic sur le tableau de tâches planté au pied du belvédère. */
   onPickBoard?: () => void;
-  /** Le curseur passe sur le tableau (ou le quitte). */
+  /** Le curseur passe sur le tableau ou l'écran géant (ou les quitte). */
   onHoverBoard?: (over: boolean) => void;
+  /** Clic sur l'écran géant : ouvrir la visionneuse sur ce qu'il montre. */
+  onPickScreen?: (at: ReturnType<ScreenLayer["focus"]>) => void;
 }
 
 /** Touches de déplacement, par position physique : ZQSD en AZERTY = WASD en QWERTY. */
@@ -62,6 +67,10 @@ export class WorldRenderer {
   private agents: AgentLayer;
   private orchestrator: OrchestratorLayer;
   private conveyors: ConveyorLayer;
+  private screen: ScreenLayer;
+  /** Couche DOM placée en 3D : le site en direct de l'écran géant. */
+  private css = new CSS3DRenderer();
+  private cssScene = new Scene();
   private visitor = new Visitor();
   private mode: ViewMode = "aerial";
   private keys = new Set<string>();
@@ -119,6 +128,9 @@ export class WorldRenderer {
     this.agents = new AgentLayer(this.scene);
     this.orchestrator = new OrchestratorLayer(this.scene);
     this.conveyors = new ConveyorLayer(this.scene);
+    this.screen = new ScreenLayer(this.scene, this.cssScene);
+    this.css.domElement.className = "world-css";
+    canvas.parentElement?.appendChild(this.css.domElement);
     this.scene.add(this.visitor.group);
     this.scenery = new SceneryLayer(this.scene);
 
@@ -153,6 +165,7 @@ export class WorldRenderer {
       this.applyNight();
       const zones = [...this.zones.values()];
       this.orchestrator.place(zones, zones.map((z) => z.sign.box));
+      this.screen.place(this.orchestrator.siteOf());
       // Le belvédère et son tableau se contournent : sinon le visiteur les traverse.
       this.obstacles = [...zones.flatMap((z) => z.obstacles), ...this.orchestrator.footprint()];
       this.platforms = zones.map(({ project: { zone } }) => ({
@@ -183,6 +196,29 @@ export class WorldRenderer {
     };
     paintBoard();
     this.unsubscribe.push(useTodos.subscribe((s, prev) => { if (s.todos !== prev.todos) paintBoard(); }));
+
+    this.chooseScreen();
+    this.unsubscribe.push(useRenders.subscribe((s, prev) => { if (s.renders !== prev.renders) this.chooseScreen(); }));
+  }
+
+  /**
+   * Ce que montre l'écran géant : le projet sur lequel un run tourne, s'il
+   * a quelque chose à montrer ; sinon celui des derniers rendus ; sinon le
+   * premier qui a un site. Son site en direct d'abord, ses images sinon.
+   */
+  private chooseScreen() {
+    const { projects, snapshot } = useWorld.getState();
+    const groups = groupRenders(useRenders.getState().renders);
+    const showable = (id: string) => {
+      const p = projects.find((x) => x.id === id);
+      return p && (p.previewUrl || groups.some((g) => g.projectId === id)) ? p : undefined;
+    };
+    const running = snapshot.runs.filter((r) => r.status === "running").map((r) => showable(r.projectId)).find(Boolean);
+    const project = running ?? (groups[0] && showable(groups[0].projectId)) ?? projects.find((p) => p.previewUrl);
+    let content: ScreenContent = { kind: "idle" };
+    if (project?.previewUrl) content = { kind: "site", project };
+    else if (project) content = { kind: "images", project, group: groups.find((g) => g.projectId === project.id)! };
+    this.screen.setContent(content);
   }
 
   /** Emprise de tout ce qui est construit : plateformes et belvédère. */
@@ -347,7 +383,7 @@ export class WorldRenderer {
       setPointer(e);
       const agent = this.pickAt();
       this.opts.onHover(agent);
-      this.opts.onHoverBoard?.(!agent && this.pickBoard());
+      this.opts.onHoverBoard?.(!agent && (this.pickBoard() || this.pickScreen()));
     });
 
     const endDrag = (e: PointerEvent) => {
@@ -359,6 +395,7 @@ export class WorldRenderer {
         setPointer(e);
         const agent = this.pickAt();
         if (!agent && this.pickBoard()) this.opts.onPickBoard?.();
+        else if (!agent && this.pickScreen()) this.opts.onPickScreen?.(this.screen.focus());
         else this.opts.onPick(agent);
       }
     };
@@ -389,7 +426,7 @@ export class WorldRenderer {
   private keyboardIsOurs(e: KeyboardEvent): boolean {
     const el = e.target as HTMLElement | null;
     if (el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable)) return false;
-    return !useConfig.getState().open && !useHistory.getState().open;
+    return !useConfig.getState().open && !useHistory.getState().open && !useRenders.getState().open;
   }
 
   private onKeyDown = (e: KeyboardEvent) => {
@@ -423,6 +460,11 @@ export class WorldRenderer {
     return this.agents.pick(this.raycaster);
   }
 
+  private pickScreen(): boolean {
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    return this.screen.pick(this.raycaster);
+  }
+
   private pickBoard(): boolean {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     return this.orchestrator.pickBoard(this.raycaster);
@@ -433,6 +475,7 @@ export class WorldRenderer {
     const w = Math.max(1, rect.width);
     const h = Math.max(1, rect.height);
     this.renderer.setSize(w, h, false);
+    this.css.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   };
@@ -448,7 +491,7 @@ export class WorldRenderer {
 
       // Onglet masqué ou réglages ouverts par-dessus : on ne rend rien.
       // Le moteur, lui, continue de tourner.
-      if (document.hidden || useConfig.getState().open || useHistory.getState().open) return;
+      if (document.hidden || useConfig.getState().open || useHistory.getState().open || useRenders.getState().open) return;
 
       // Monde au repos (personne ne marche, caméra posée, aucun signal qui
       // pulse) : 10 images par seconde suffisent à la respiration des
@@ -481,6 +524,8 @@ export class WorldRenderer {
       this.scenery.updateScreens(atPost, this.accentByProject());
       this.scenery.animate(this.elapsed, atPost);
       this.renderer.render(this.scene, this.camera);
+      this.screen.update(dt, this.camera.position, true);
+      this.css.render(this.cssScene, this.camera);
     };
     this.last = performance.now();
     this.raf = requestAnimationFrame(loop);
@@ -492,6 +537,7 @@ export class WorldRenderer {
     if (snapshot.tick === this.lastTick) return;
     this.lastTick = snapshot.tick;
     this.agents.sync(snapshot.agents, agentsById, this.zones);
+    this.chooseScreen();
     this.orchestrator.sync(snapshot.orchestrator, this.zones, this.camera.position);
   }
 
@@ -568,6 +614,8 @@ export class WorldRenderer {
     this.agents.dispose();
     this.conveyors.dispose();
     this.scenery.dispose();
+    this.screen.dispose();
+    this.css.domElement.remove();
     this.renderer.dispose();
   }
 }

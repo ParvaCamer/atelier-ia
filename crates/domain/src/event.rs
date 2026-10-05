@@ -59,4 +59,6 @@ pub enum DomainEvent {
     ConfigChanged,
     /// Le tableau de l'orchestrateur a changé : l'UI recharge la liste.
     TodosChanged,
+    /// De nouveaux rendus visuels sont disponibles (fin d'une tâche).
+    RendersChanged,
 }

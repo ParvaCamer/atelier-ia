@@ -12,6 +12,7 @@ import { AgentPopover } from "./AgentPopover";
 import { Approvals, NoticeToast } from "./Approvals";
 import { TodoBoard } from "./TodoBoard";
 import { useTodos } from "../state/todos";
+import { useRenders } from "../state/renders";
 
 export function WorldCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -42,6 +43,7 @@ export function WorldCanvas() {
       // Le tableau planté à côté de l'orchestrateur s'ouvre d'un clic.
       onPickBoard: () => useTodos.getState().show(),
       onHoverBoard: setOverBoard,
+      onPickScreen: (at) => useRenders.getState().show(at),
     });
     setWorld(renderer);
     worldHandle.set(renderer);

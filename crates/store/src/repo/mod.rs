@@ -7,6 +7,7 @@ pub mod logs;
 pub mod memory;
 pub mod projects;
 pub mod providers;
+pub mod renders;
 pub mod runs;
 pub mod schedules;
 pub mod settings;

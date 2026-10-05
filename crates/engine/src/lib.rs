@@ -12,6 +12,7 @@ pub mod history;
 pub mod launch;
 pub mod memory;
 pub mod orchestrator;
+pub mod renders;
 pub mod schedules;
 pub mod scheduler;
 pub mod semantic;

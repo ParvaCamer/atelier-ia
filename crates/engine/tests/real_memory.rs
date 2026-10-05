@@ -17,7 +17,7 @@ async fn extraction_reelle_par_ollama() {
     let db = Db::open_in_memory().await.unwrap();
     let project = Project {
         id: ProjectId::new(), name: "Spotly".into(), description: "Application Android de découverte de bars".into(),
-        root_path: None, git_remote: None, color: "#5eead4".into(), zone: Zone::new(0.0, 0.0, 28.0, 20.0), archived: false,
+        root_path: None, git_remote: None, preview_url: None, color: "#5eead4".into(), zone: Zone::new(0.0, 0.0, 28.0, 20.0), archived: false,
     };
     repo::projects::upsert(&db, &project).await.unwrap();
     let agent = Agent {

@@ -26,10 +26,10 @@ use std::time::Duration;
 const POLL: Duration = Duration::from_secs(2);
 /// Au-delà, le dossier est trop gros pour être scruté : on le dit plutôt
 /// que de faire tourner le disque en silence.
-const MAX_FILES: usize = 20_000;
+pub(crate) const MAX_FILES: usize = 20_000;
 /// Dossiers de dépendances ou de compilation : énormes, régénérés, jamais
 /// une raison de lancer un workflow.
-const SKIPPED_DIRS: &[&str] = &[
+pub(crate) const SKIPPED_DIRS: &[&str] = &[
     ".git", "node_modules", "target", "build", "dist", ".gradle", ".idea", ".next", ".venv", "__pycache__",
     "Pods", "DerivedData", ".turbo", ".cache",
 ];
