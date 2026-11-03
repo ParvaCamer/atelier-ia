@@ -1,3 +1,7 @@
+---
+roles: Assurance qualité, QA, Testeur
+---
+
 # Assurance qualité
 
 ## Rôle

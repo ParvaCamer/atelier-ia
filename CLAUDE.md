@@ -71,13 +71,18 @@ Atelier est une application d'orchestration : **le comportement d'un agent
 est défini par un skill, pas par un prompt recopié ni par une consigne
 noyée dans le code.**
 
-**Deux niveaux, jamais mélangés :**
+**Trois niveaux, jamais mélangés :**
 
 - **Le skill de rôle** — le métier (QA, Dev Front, Ops, Marketing…),
   partagé par tous les projets. Les rôles livrés avec l'application vivent
-  dans `skills/agents/<role>.md`, versionnés ici.
+  dans `skills/agents/<famille>/<slug>.md`, versionnés ici ; leur en-tête
+  `roles:` dit quels intitulés de rôle ils couvrent (voir
+  `skills/agents/README.md`).
 - **La surcouche d'agent** — quelques lignes propres à un agent précis.
   Elle ne redit pas le métier.
+- **Le contexte du projet** — le `AGENTS.md` (sinon `CLAUDE.md`) à la
+  racine du dossier du projet : ses commandes, conventions et pièges, donné
+  à chacun de ses agents. Il ne redit ni le métier ni l'agent.
 
 Un même métier n'est donc jamais dupliqué entre projets : « QA Spotly » et
 « QA Agency » partagent le skill de rôle et ne diffèrent que par leur
@@ -99,11 +104,16 @@ droit**, il décrit une méthode.
 **État actuel : implémenté.** Table `agent_skills` (migration 0005),
 `agents.skill_slug` + `agents.skill_notes`, skills livrés embarqués depuis
 `skills/agents/` par `seed::ensure_builtin_agent_skills` (jamais écrasés),
-injection budgétée dans `agent_system_prompt` (4 000 / 800 caractères),
-brouillon par `Engine::draft_agent_skill` (alias `reasoning.high`, aucune
-écriture). Un nouveau skill livré = un fichier dans `skills/agents/` **et**
-une ligne dans `BUILTIN_AGENT_SKILLS` (`crates/store/src/seed.rs`). Le
-champ `skills` (étiquettes) reste utilisé par l'orchestrateur.
+puis rattachés **une seule fois** aux agents sans skill dont le rôle figure
+dans leur en-tête (réglage `skills.rattaches` : retiré par l'utilisateur, un
+skill ne revient pas). Injection budgétée dans `agent_system_prompt`
+(4 000 / 800 caractères, puis 3 000 pour le contexte du projet, relu à
+chaque tâche par `crates/engine/src/brief.rs`), brouillon par
+`Engine::draft_agent_skill` (alias `reasoning.high`, aucune écriture). Un
+nouveau skill livré = un fichier dans `skills/agents/<famille>/` **et** une
+ligne dans `BUILTIN_AGENT_SKILLS` (`crates/store/src/seed.rs`) — un test
+échoue si l'un manque. Le champ `skills` (étiquettes) reste utilisé par
+l'orchestrateur.
 
 ## Style
 

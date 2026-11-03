@@ -585,3 +585,59 @@ async fn suites_de_l_orchestrateur_bornees_en_generations() {
     assert!(!todos.iter().any(|t| t.text == "suite trois"), "au-delà de {} générations, plus de suite", atelier_engine::todos::MAX_TODO_DEPTH);
     assert_eq!(w.script.seen().len(), 3);
 }
+
+// ---------------------------------------------------------------------
+// Contexte du projet : AGENTS.md / CLAUDE.md
+// ---------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fichier_de_contexte_du_projet_donne_aux_agents() {
+    let finish = || json!({"thought": "ok", "action": "finish", "summary": "fait"});
+    let w = world(vec![finish(), finish(), finish(), finish()]).await;
+    let root = std::path::PathBuf::from(repo::projects::get(w.engine.db(), &w.project).await.unwrap().root_path.unwrap());
+    let system_of = |i: usize| w.script.seen()[i].system.clone();
+
+    // 1. Sans fichier : aucune section, et rien à afficher dans les réglages.
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Completed).await;
+    assert!(!system_of(0).contains("## Le projet"));
+    assert_eq!(w.engine.project_brief(&w.project).await.unwrap(), None);
+
+    // 2. CLAUDE.md injecté après la méthode, AGENTS.md préféré quand les deux existent.
+    atelier_store::seed::ensure_builtin_agent_skills(w.engine.db()).await.unwrap();
+    give_skill(&w, "Agent 0", Some("qa"), "").await;
+    std::fs::write(root.join("CLAUDE.md"), "CONSIGNE-CLAUDE : lancer ./gradlew test").unwrap();
+    std::fs::write(root.join("AGENTS.md"), "CONSIGNE-AGENTS : lancer ./gradlew testDebugUnitTest").unwrap();
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Completed).await;
+    let system = system_of(1);
+    assert!(system.contains("## Le projet (AGENTS.md)") && system.contains("CONSIGNE-AGENTS"), "{system}");
+    assert!(!system.contains("CONSIGNE-CLAUDE"), "un seul fichier de contexte");
+    assert!(system.find("## Ta méthode").unwrap() < system.find("## Le projet").unwrap(), "le projet après le métier");
+
+    // 3. Trop long : le début seulement, coupé à une fin de ligne, et l'agent sait où lire la suite.
+    std::fs::remove_file(root.join("AGENTS.md")).unwrap();
+    let long: String = (0..400).map(|i| format!("ligne {i:03} : consigne détaillée du projet\n")).collect();
+    std::fs::write(root.join("CLAUDE.md"), format!("DÉBUT-DU-FICHIER\n{long}FIN-DU-FICHIER")).unwrap();
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Completed).await;
+    let system = system_of(2);
+    assert!(system.contains("DÉBUT-DU-FICHIER") && !system.contains("FIN-DU-FICHIER"), "le début est gardé");
+    assert!(system.contains("suite omise") && system.contains("fs.read"));
+    let brief = w.engine.project_brief(&w.project).await.unwrap().unwrap();
+    assert_eq!(brief.file, "CLAUDE.md");
+    assert!(brief.injected < brief.chars && brief.injected as usize <= atelier_engine::brief::PROJECT_BRIEF_BUDGET + 200, "{brief:?}");
+
+    // 4. Un lien qui sort du dossier du projet n'est jamais lu.
+    #[cfg(unix)]
+    {
+        let outside = std::env::temp_dir().join(format!("atelier-secret-{}.md", uuid::Uuid::now_v7()));
+        std::fs::write(&outside, "SECRET-HORS-PROJET").unwrap();
+        std::fs::remove_file(root.join("CLAUDE.md")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("CLAUDE.md")).unwrap();
+        let task = ai_step(&w, "Agent 0").await;
+        wait_for(&w, &task, TaskStatus::Completed).await;
+        assert!(!system_of(3).contains("SECRET-HORS-PROJET"));
+        assert_eq!(w.engine.project_brief(&w.project).await.unwrap(), None);
+    }
+}

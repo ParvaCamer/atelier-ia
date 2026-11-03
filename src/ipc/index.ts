@@ -12,7 +12,7 @@ import type {
   Project, ProjectId, ProviderConfig, ProviderHealth, PtyId, RouteTest, Run, RunId, Task,
   TaskControl, TaskId, ToolInfo, Workflow, WorkflowId, WorldSnapshot,
   MemoryEntry, MemoryFilter, MemoryId, MemoryView, RunDetail, RunFilter, RunSummary,
-  Schedule, ScheduleId, TeamTemplate, WorkflowCheck, FileWatch, WatchId, CostSummary, Todo, TodoId, Render, RenderId,
+  Schedule, ScheduleId, TeamTemplate, WorkflowCheck, FileWatch, WatchId, CostSummary, Todo, TodoId, Render, RenderId, ProjectBrief,
 } from "./generated";
 
 export type GrantPresetName = "none" | "read-only" | "developer";
@@ -70,6 +70,8 @@ export const api = {
   grantPreset: (agentId: AgentId, preset: GrantPresetName) =>
     invoke<Grant[]>("grant_preset", { agentId, preset }),
   teamTemplates: () => invoke<TeamTemplate[]>("team_templates"),
+  /** Fichier de contexte (AGENTS.md / CLAUDE.md) que les agents du projet reçoivent. */
+  projectBrief: (projectId: ProjectId) => invoke<ProjectBrief | null>("project_brief", { projectId }),
   createTeam: (projectId: ProjectId, template: string) =>
     invoke<Agent[]>("create_team", { projectId, template }),
   saveWorkflow: (workflow: Workflow) => invoke<Workflow>("save_workflow", { workflow }),

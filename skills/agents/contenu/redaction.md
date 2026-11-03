@@ -1,3 +1,7 @@
+---
+roles: Rédaction, Rédacteur, Rédactrice, Copywriter
+---
+
 # Rédaction
 
 ## Rôle

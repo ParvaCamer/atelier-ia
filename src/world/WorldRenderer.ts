@@ -12,6 +12,7 @@ import {
 import { useConfig } from "../state/config";
 import { useHistory } from "../state/history";
 import { useTodos } from "../state/todos";
+import { useUi } from "../state/ui";
 import { groupRenders, useRenders } from "../state/renders";
 import { CSS3DRenderer } from "three/examples/jsm/renderers/CSS3DRenderer.js";
 import { ScreenLayer, type ScreenContent } from "./ScreenLayer";
@@ -432,7 +433,7 @@ export class WorldRenderer {
   private keyboardIsOurs(e: KeyboardEvent): boolean {
     const el = e.target as HTMLElement | null;
     if (el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable)) return false;
-    return !useConfig.getState().open && !useHistory.getState().open && !useRenders.getState().open;
+    return !useConfig.getState().open && !useHistory.getState().open && !useRenders.getState().open && !useUi.getState().paletteOpen;
   }
 
   private onKeyDown = (e: KeyboardEvent) => {

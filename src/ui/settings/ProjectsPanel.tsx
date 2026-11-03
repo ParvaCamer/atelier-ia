@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Project, ProjectId, TeamTemplate } from "../../ipc";
+import type { Project, ProjectBrief, ProjectId, TeamTemplate } from "../../ipc";
 import { api } from "../../ipc";
 import { isTauri } from "../../ipc/devMock";
 import { useConfig } from "../../state/config";
@@ -92,6 +92,7 @@ export function ProjectsPanel() {
                 <Text mono value={draft.rootPath ?? ""} onChange={(v) => patch({ rootPath: v || null })} placeholder="/Users/…/Projets/Spotly" />
                 <button type="button" className="btn" disabled={!isTauri()} onClick={pickFolder}>Choisir…</button>
               </div>
+              {draft.id && original?.rootPath && <BriefStatus projectId={draft.id} rootPath={original.rootPath} />}
             </Field>
             <Field label="Dépôt Git" wide hint="Informatif pour l'instant.">
               <Text mono value={draft.gitRemote ?? ""} onChange={(v) => patch({ gitRemote: v || null })} placeholder="git@github.com:moi/spotly.git" />
@@ -146,5 +147,29 @@ export function ProjectsPanel() {
         <section className="split-detail empty">Aucun projet sélectionné.</section>
       )}
     </div>
+  );
+}
+
+/**
+ * Ce que les agents du projet reçoivent de son fichier de contexte. Lu par
+ * le moteur, qui seul décide quel fichier compte et combien en est injecté.
+ */
+function BriefStatus({ projectId, rootPath }: { projectId: ProjectId; rootPath: string }) {
+  const [brief, setBrief] = useState<ProjectBrief | null | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    api.projectBrief(projectId).then((b) => alive && setBrief(b)).catch(() => alive && setBrief(null));
+    return () => { alive = false; };
+  }, [projectId, rootPath]);
+  if (brief === undefined) return null;
+  const n = (v: number) => v.toLocaleString("fr-FR");
+  return (
+    <span className="field-hint brief-status" data-found={!!brief}>
+      {brief
+        ? <>Contexte du projet : <code>{brief.file}</code> — {brief.injected < brief.chars
+            ? `les ${n(brief.injected)} premiers caractères sur ${n(brief.chars)} sont donnés aux agents ; ils lisent la suite au besoin.`
+            : `${n(brief.chars)} caractères, donnés en entier à chaque agent du projet.`}</>
+        : <>Aucun <code>AGENTS.md</code> ni <code>CLAUDE.md</code> à la racine : ajoutes-en un pour donner aux agents les commandes et conventions du projet.</>}
+    </span>
   );
 }

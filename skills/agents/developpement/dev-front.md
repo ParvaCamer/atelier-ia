@@ -1,3 +1,7 @@
+---
+roles: Développeur Frontend, Développeur front-end, Dev front, Intégrateur
+---
+
 # Développeur frontend
 
 ## Rôle

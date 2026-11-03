@@ -434,16 +434,85 @@ pub async fn ensure_builtin_providers(db: &Db) -> Result<()> {
     Ok(())
 }
 
-/// Skills de rôle livrés avec l'application. Embarqués dans le binaire :
+/// Skills de rôle livrés avec l'application, un par fichier de
+/// `skills/agents/<famille>/<slug>.md`. Embarqués dans le binaire :
 /// l'application empaquetée n'a pas le dépôt à côté d'elle.
-const BUILTIN_AGENT_SKILLS: &[(&str, &str)] = &[
-    ("dev-front", include_str!("../../../skills/agents/dev-front.md")),
-    ("qa", include_str!("../../../skills/agents/qa.md")),
-    ("motion-designer", include_str!("../../../skills/agents/motion-designer.md")),
-    ("direction-artistique", include_str!("../../../skills/agents/direction-artistique.md")),
-    ("redaction", include_str!("../../../skills/agents/redaction.md")),
-    ("chef-de-projet", include_str!("../../../skills/agents/chef-de-projet.md")),
+pub const BUILTIN_AGENT_SKILLS: &[(&str, &str)] = &[
+    ("chef-de-projet", include_str!("../../../skills/agents/pilotage/chef-de-projet.md")),
+    ("tech-lead", include_str!("../../../skills/agents/pilotage/tech-lead.md")),
+    ("dev-front", include_str!("../../../skills/agents/developpement/dev-front.md")),
+    ("dev-back", include_str!("../../../skills/agents/developpement/dev-back.md")),
+    ("qa", include_str!("../../../skills/agents/developpement/qa.md")),
+    ("designer-produit", include_str!("../../../skills/agents/produit/designer-produit.md")),
+    ("direction-artistique", include_str!("../../../skills/agents/contenu/direction-artistique.md")),
+    ("motion-designer", include_str!("../../../skills/agents/contenu/motion-designer.md")),
+    ("redaction", include_str!("../../../skills/agents/contenu/redaction.md")),
+    ("marketing", include_str!("../../../skills/agents/marketing/marketing.md")),
+    ("seo", include_str!("../../../skills/agents/marketing/seo.md")),
+    ("ops", include_str!("../../../skills/agents/exploitation/ops.md")),
+    ("supervision", include_str!("../../../skills/agents/exploitation/supervision.md")),
+    ("assistant", include_str!("../../../skills/agents/assistance/assistant.md")),
+    ("recherche", include_str!("../../../skills/agents/assistance/recherche.md")),
+    ("automatisation", include_str!("../../../skills/agents/assistance/automatisation.md")),
 ];
+
+/// Clé de réglage : slugs livrés déjà proposés aux agents sans skill. Un
+/// skill n'est rattaché d'office qu'une fois — retiré ensuite par
+/// l'utilisateur, il ne revient pas.
+const ATTACHED_KEY: &str = "skills.rattaches";
+
+/// Un skill livré, son en-tête lu.
+#[derive(Debug, Clone)]
+pub struct BuiltinSkill {
+    pub slug: &'static str,
+    /// Intitulés de rôle couverts, tels qu'écrits dans l'en-tête.
+    pub roles: Vec<String>,
+    pub title: String,
+    /// Corps du skill, sans l'en-tête : c'est lui qui est injecté.
+    pub content: String,
+}
+
+/// Sépare l'en-tête `---` du corps. Seule la clé `roles` est lue ; un
+/// fichier sans en-tête est accepté (aucun rôle couvert).
+fn parse_skill(slug: &'static str, raw: &str) -> BuiltinSkill {
+    let raw = raw.trim_start_matches('\u{feff}');
+    let (header, body) = match raw.strip_prefix("---\n").and_then(|rest| rest.split_once("\n---")) {
+        Some((header, body)) => (header, body.trim_start_matches('-')),
+        None => ("", raw),
+    };
+    let roles = header
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("roles:"))
+        .map(|list| list.split(',').map(|r| r.trim().to_string()).filter(|r| !r.is_empty()).collect())
+        .unwrap_or_default();
+    let content = body.trim().to_string();
+    BuiltinSkill { slug, roles, title: skill_title(slug, &content), content }
+}
+
+pub fn builtin_agent_skills() -> Vec<BuiltinSkill> {
+    BUILTIN_AGENT_SKILLS.iter().map(|(slug, raw)| parse_skill(slug, raw)).collect()
+}
+
+/// Intitulé de rôle comparable : minuscules, sans accents ni espaces
+/// superflus. « Développeur  Backend » et « developpeur backend » se valent.
+pub fn role_key(role: &str) -> String {
+    role.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'à' | 'â' | 'ä' | 'á' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'î' | 'ï' | 'í' => 'i',
+            'ô' | 'ö' | 'ó' => 'o',
+            'ù' | 'û' | 'ü' | 'ú' => 'u',
+            'ç' => 'c',
+            other => other,
+        })
+        .collect::<String>()
+        .replace('œ', "oe")
+}
 
 /// Titre d'un skill : son premier titre markdown de niveau 1.
 fn skill_title(slug: &str, content: &str) -> String {
@@ -456,17 +525,38 @@ fn skill_title(slug: &str, content: &str) -> String {
 }
 
 /// Skills de rôle livrés, ajoutés **seulement si leur slug est absent** :
-/// une version modifiée par l'utilisateur n'est jamais écrasée.
-pub async fn ensure_builtin_agent_skills(db: &Db) -> Result<()> {
-    for (slug, content) in BUILTIN_AGENT_SKILLS {
+/// une version modifiée par l'utilisateur n'est jamais écrasée. Puis, pour
+/// chaque skill livré pas encore proposé, rattachement aux agents qui n'ont
+/// aucun skill et dont le rôle figure dans son en-tête. Renvoie les agents
+/// rattachés (nom, slug), pour le journal.
+pub async fn ensure_builtin_agent_skills(db: &Db) -> Result<Vec<(String, String)>> {
+    let skills = builtin_agent_skills();
+    for b in &skills {
         let skill = AgentSkill {
-            slug: slug.to_string(),
-            title: skill_title(slug, content),
-            content: content.trim().to_string(),
+            slug: b.slug.to_string(),
+            title: b.title.clone(),
+            content: b.content.clone(),
             origin: SkillOrigin::Builtin,
             updated_at: Utc::now(),
         };
         repo::agent_skills::insert_if_missing(db, &skill).await?;
     }
-    Ok(())
+
+    let mut offered: Vec<String> = repo::settings::get(db, ATTACHED_KEY).await?.unwrap_or_default();
+    let fresh: Vec<&BuiltinSkill> = skills.iter().filter(|b| !offered.iter().any(|o| o == b.slug)).collect();
+    if fresh.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut attached = Vec::new();
+    for mut agent in repo::agents::list(db).await?.into_iter().filter(|a| a.skill_slug.is_none()) {
+        let key = role_key(&agent.role);
+        if let Some(b) = fresh.iter().find(|b| b.roles.iter().any(|r| role_key(r) == key)) {
+            agent.skill_slug = Some(b.slug.to_string());
+            repo::agents::upsert(db, &agent).await?;
+            attached.push((agent.name.clone(), b.slug.to_string()));
+        }
+    }
+    offered.extend(fresh.iter().map(|b| b.slug.to_string()));
+    repo::settings::set(db, ATTACHED_KEY, &offered).await?;
+    Ok(attached)
 }

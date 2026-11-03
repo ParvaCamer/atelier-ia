@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useWorld } from "../state/store";
+import { useUi } from "../state/ui";
 import { worldHandle } from "../world/handle";
 import { AgentPanel } from "../ui/AgentPanel";
+import { CommandPalette } from "../ui/CommandPalette";
 import { Header } from "../ui/Header";
-import { Terminal } from "../ui/Terminal";
+import { Channel } from "../ui/channel/Channel";
 import { WorldCanvas } from "../ui/WorldCanvas";
 import { Settings } from "../ui/settings/Settings";
 import { History } from "../ui/history/History";
@@ -13,11 +15,25 @@ export function App() {
   const ready = useWorld((s) => s.ready);
   const init = useWorld((s) => s.init);
   const [error, setError] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = useUi((s) => s.collapsed);
+  const tall = useUi((s) => s.tall);
 
   useEffect(() => {
     init().catch((e) => setError(String(e)));
   }, [init]);
+
+  // ⌘K / Ctrl+K : la palette, depuis n'importe où — y compris un champ.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        const ui = useUi.getState();
+        if (ui.paletteOpen) ui.closePalette(); else ui.openPalette();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   if (error) {
     return <div className="loading">Le moteur n'a pas démarré : {error}</div>;
@@ -33,37 +49,25 @@ export function App() {
         onFrameAll={() => worldHandle.get()?.frameAll()}
       />
       <WorldCanvas />
-      <div className={collapsed ? "dock collapsed" : "dock"}>
+      <div className={collapsed ? "dock collapsed" : tall ? "dock tall" : "dock"}>
         {collapsed ? (
           <div className="pane" style={{ gridColumn: "1 / -1" }}>
             <div className="pane-head">
-              Panneaux
-              <button className="dock-toggle" onClick={() => setCollapsed(false)}>
-                déplier
-              </button>
+              Agent, discussion, journal
+              <button className="dock-toggle" onClick={() => useUi.getState().toggleCollapsed()}>déplier</button>
             </div>
           </div>
         ) : (
           <>
             <AgentPanel />
-            <div className="pane" style={{ minWidth: 0 }}>
-              <Terminal />
-            </div>
+            <Channel />
           </>
         )}
       </div>
       <Settings />
       <History />
       <RenderViewer />
-      {!collapsed && (
-        <button
-          className="dock-toggle"
-          style={{ position: "absolute", right: 12, bottom: 276, zIndex: 4 }}
-          onClick={() => setCollapsed(true)}
-        >
-          replier
-        </button>
-      )}
+      <CommandPalette />
     </div>
   );
 }

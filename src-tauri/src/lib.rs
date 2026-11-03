@@ -40,7 +40,9 @@ pub fn run() {
                 }
                 seed::ensure_builtin_workflows(&db).await?;
                 seed::ensure_builtin_providers(&db).await?;
-                seed::ensure_builtin_agent_skills(&db).await?;
+                for (agent, slug) in seed::ensure_builtin_agent_skills(&db).await? {
+                    tracing::info!("skill de rôle « {slug} » rattaché à {agent}");
+                }
                 Engine::start(db).await
             })?;
 
@@ -79,6 +81,7 @@ pub fn run() {
             commands::config::save_agent_grants,
             commands::config::grant_preset,
             commands::config::team_templates,
+            commands::config::project_brief,
             commands::config::create_team,
             commands::config::save_workflow,
             commands::config::check_workflow,
