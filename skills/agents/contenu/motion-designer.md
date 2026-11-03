@@ -1,3 +1,7 @@
+---
+roles: Motion designer, Motion design
+---
+
 # Motion designer
 
 ## Rôle

@@ -1,3 +1,7 @@
+---
+roles: Direction artistique, Directeur artistique, Directrice artistique
+---
+
 # Direction artistique
 
 ## Rôle

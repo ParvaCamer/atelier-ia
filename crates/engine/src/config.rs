@@ -1183,9 +1183,9 @@ const TEAMS: &[(&str, &str, &str, &[(&str, Archetype, Option<&str>)])] = &[
         "Développement",
         "developer",
         &[
-            ("Tech Lead", Archetype::Lead, None),
+            ("Tech Lead", Archetype::Lead, Some("tech-lead")),
             ("Développeur Frontend", Archetype::Dev, Some("dev-front")),
-            ("Développeur Backend", Archetype::Backend, None),
+            ("Développeur Backend", Archetype::Backend, Some("dev-back")),
             ("Assurance qualité", Archetype::Qa, Some("qa")),
         ],
     ),
@@ -1206,8 +1206,8 @@ const TEAMS: &[(&str, &str, &str, &[(&str, Archetype, Option<&str>)])] = &[
         "read-only",
         &[
             ("Chef de projet", Archetype::Lead, Some("chef-de-projet")),
-            ("Ingénieur système", Archetype::Ops, None),
-            ("Supervision", Archetype::Ops, None),
+            ("Ingénieur système", Archetype::Ops, Some("ops")),
+            ("Supervision", Archetype::Ops, Some("supervision")),
         ],
     ),
 ];

@@ -216,7 +216,8 @@ async fn base_existante_mise_a_jour_pour_les_skills() {
     seed::ensure_builtin_agent_skills(&db).await.unwrap();
     let agent = repo::agents::get(&db, &AgentId("a".into())).await.unwrap();
     assert_eq!(agent.name, "Vétéran");
-    assert_eq!(agent.skill_slug, None);
+    // Son rôle « QA » est couvert par le skill livré : il le reçoit.
+    assert_eq!(agent.skill_slug.as_deref(), Some("qa"));
     assert_eq!(agent.skill_notes, "");
     let slugs: Vec<String> = repo::agent_skills::list(&db).await.unwrap().into_iter().map(|s| s.slug).collect();
     assert!(slugs.contains(&"qa".to_string()) && slugs.contains(&"dev-front".to_string()), "{slugs:?}");
@@ -289,4 +290,75 @@ async fn relais_insere_une_seule_fois_par_tentative() {
     plus_tard.created_at = refin;
     assert!(repo::handoffs::insert_if_new(&db, &plus_tard, refin).await.unwrap(), "une relance doit produire un relais");
     assert_eq!(repo::handoffs::list_by_run(&db, &run.id).await.unwrap().len(), 2);
+}
+
+/// L'arbre `skills/agents/` et la liste embarquée ne divergent jamais : un
+/// fichier oublié dans `BUILTIN_AGENT_SKILLS` ne serait jamais livré.
+#[test]
+fn chaque_skill_de_l_arbre_est_livre_et_ses_roles_sont_uniques() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../skills/agents");
+    let mut files = Vec::new();
+    let mut stack = vec![root];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "md") && path.file_name().unwrap() != "README.md" {
+                files.push(path.file_stem().unwrap().to_string_lossy().to_string());
+            }
+        }
+    }
+    files.sort();
+    let mut declared: Vec<String> = seed::BUILTIN_AGENT_SKILLS.iter().map(|(slug, _)| slug.to_string()).collect();
+    declared.sort();
+    assert_eq!(files, declared, "fichiers de skills/agents/ et BUILTIN_AGENT_SKILLS doivent correspondre un à un");
+
+    let mut seen = std::collections::HashMap::new();
+    for skill in seed::builtin_agent_skills() {
+        assert!(!skill.roles.is_empty(), "{} : en-tête `roles:` manquant", skill.slug);
+        assert!(skill.title != skill.slug, "{} : titre `# …` manquant", skill.slug);
+        assert!(!skill.content.starts_with("---") && !skill.content.contains("roles:"), "{} : l'en-tête ne doit pas être injecté", skill.slug);
+        assert!(skill.content.chars().count() <= 4_000, "{} : au-delà du budget d'injection", skill.slug);
+        for role in &skill.roles {
+            if let Some(other) = seen.insert(seed::role_key(role), skill.slug) {
+                panic!("le rôle « {role} » est revendiqué par {other} et {}", skill.slug);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn skill_livre_rattache_une_seule_fois_aux_agents_sans_skill() {
+    let db = seeded().await;
+    let project = repo::projects::list(&db).await.unwrap().remove(0);
+    let mut agent = |name: &str, role: &str, slug: Option<&str>| Agent {
+        id: AgentId::new(), project_id: project.id.clone(), name: name.into(), role: role.into(),
+        system_prompt: String::new(), skills: vec![], tools: vec![], model_ref: "reasoning.high".into(),
+        archetype: Archetype::Backend, enabled: true, skill_slug: slug.map(Into::into), skill_notes: String::new(),
+    };
+    // Les skills livrés existent avant qu'un agent n'y fasse référence.
+    seed::ensure_builtin_agent_skills(&db).await.unwrap();
+    let back = agent("Back", "  développeur   BACKEND ", None);
+    let choisi = agent("Choisi", "Développeur Backend", Some("qa"));
+    let inconnu = agent("Inconnu", "Astronaute", None);
+    for a in [&back, &choisi, &inconnu] {
+        repo::agents::upsert(&db, a).await.unwrap();
+    }
+    // Base sans marqueur : comme une installation qui reçoit ces skills.
+    sqlx::query("DELETE FROM settings WHERE key = 'skills.rattaches'").execute(db.pool()).await.unwrap();
+
+    let attached = seed::ensure_builtin_agent_skills(&db).await.unwrap();
+    assert!(attached.contains(&("Back".to_string(), "dev-back".to_string())), "{attached:?}");
+    let get = |id: &AgentId| { let db = db.clone(); let id = id.clone(); async move { repo::agents::get(&db, &id).await.unwrap().skill_slug } };
+    assert_eq!(get(&back.id).await.as_deref(), Some("dev-back"), "casse, accents et espaces ignorés");
+    assert_eq!(get(&choisi.id).await.as_deref(), Some("qa"), "un choix de l'utilisateur n'est jamais écrasé");
+    assert_eq!(get(&inconnu.id).await, None, "rôle non couvert : aucun skill imposé");
+
+    // Retiré par l'utilisateur : le skill ne revient pas au démarrage suivant.
+    let mut retire = repo::agents::get(&db, &back.id).await.unwrap();
+    retire.skill_slug = None;
+    repo::agents::upsert(&db, &retire).await.unwrap();
+    assert!(seed::ensure_builtin_agent_skills(&db).await.unwrap().is_empty());
+    assert_eq!(get(&back.id).await, None);
 }

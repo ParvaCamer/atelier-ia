@@ -1,3 +1,7 @@
+---
+roles: Chef de projet, Responsable de projet, Project manager
+---
+
 # Chef de projet
 
 ## Rôle
