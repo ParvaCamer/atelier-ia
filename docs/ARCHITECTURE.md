@@ -204,7 +204,7 @@ atelier/
 │   │   ├── agents/             # instancing, steering, anims
 │   │   └── assets/             # géométries procédurales
 │   ├── ui/                     # React — aucun import three
-│   │   ├── Hud/ AgentPanel/ Terminal/ CommandBar/ Approvals/
+│   │   ├── AgentPanel/ channel/ CommandPalette/ Approvals/
 │   └── app/                    # composition, layout
 └── docs/
 ```
@@ -775,6 +775,26 @@ lieu de la dalle, seulement face à la caméra et d'assez près —, sinon le
 carrousel de ses images (5 s chacune). Un clic l'ouvre dans la visionneuse.
 Une app native (macOS) ne s'intègre pas dans la webview : son rendu passe
 par des captures que ses tâches produisent (étape `screencapture`).
+
+---
+
+## Canal de discussion et saisie (implémentés)
+
+Le bas de l'écran est un **canal** (`src/ui/channel/`) : à gauche l'agent
+sélectionné, à droite trois onglets — **Discussion** (le journal mis en
+forme par `toChannel`, fonction pure : la demande en bulle, les notes de
+l'orchestrateur, et pour chaque agent ses réflexions, commandes et sorties
+réunies en un message, les longues sorties repliées), **Journal** (les
+mêmes lignes, brutes) et **Shell** (PTY réel). Le filtre tout / agent /
+tâche vaut pour les deux premiers ; le dock s'agrandit ou se replie.
+
+La saisie (`Composer`) est en bas du canal : un champ, trois destinataires
+— *Demande* (l'orchestrateur, avec un projet visé ou non), *Commande*
+(l'agent sélectionné, sans modèle), *Tableau* (une ligne au tableau). ↵
+envoie, ⇧↵ passe à la ligne. La même saisie s'ouvre en modale par **⌘K /
+Ctrl+K** (`CommandPalette`), avec le lancement des workflows enregistrés et
+l'accès aux panneaux. Aucune validation dans l'interface : l'erreur du
+moteur s'affiche telle quelle.
 
 ---
 

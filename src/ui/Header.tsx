@@ -1,5 +1,5 @@
 import { useWorld } from "../state/store";
-import { CommandBar } from "./CommandBar";
+import { useUi } from "../state/ui";
 import { useConfig } from "../state/config";
 import { useHistory } from "../state/history";
 import { useTodos } from "../state/todos";
@@ -41,7 +41,11 @@ export function Header({ onFocusProject, onFrameAll }: Props) {
       </div>
 
       <div className="header-spacer" />
-      <CommandBar />
+      <button className="ask" onClick={() => useUi.getState().openPalette()} title="Écrire à l'orchestrateur, lancer un workflow, ouvrir un panneau">
+        <span className="ask-glyph">◆</span>
+        Demander…
+        <kbd>{navigator.platform.toLowerCase().includes("mac") ? "⌘K" : "Ctrl K"}</kbd>
+      </button>
 
       <div className="stat"><b>{working}</b> actifs</div>
       <button

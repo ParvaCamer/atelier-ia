@@ -49,7 +49,7 @@ const MOCK_RENDERS = SLIDES.map((title, i) => ({
 })));
 
 const PROJECTS: Project[] = [
-  { id: "p1", name: "Spotly", description: "", rootPath: null, gitRemote: null, previewUrl: null,
+  { id: "p1", name: "Spotly", description: "", rootPath: "/Users/moi/Projets/Spotly", gitRemote: null, previewUrl: null,
     color: "#5eead4", zone: { x: -17, z: -12, width: 28, depth: 20 }, archived: false },
   { id: "p2", name: "Agency", description: "", rootPath: null, gitRemote: null, previewUrl: MOCK_SITE,
     color: "#a78bfa", zone: { x: 17, z: -12, width: 28, depth: 20 }, archived: false },
@@ -288,8 +288,59 @@ function advanceTodos() {
   }
 }
 
+/* Journal simulé : une demande déjà traitée, puis des agents qui travaillent
+   en continu — de quoi juger la discussion sans moteur. */
+let logSeq = 0;
+type Stream = "command" | "stdout" | "stderr" | "system";
+const log = (agentId: string | null, taskId: string | null, stream: Stream, text: string, minutesAgo = 0) => ({
+  id: `lg${++logSeq}`, projectId: agentId ? AGENTS.find((a) => a.id === agentId)?.projectId ?? null : "p1",
+  agentId, taskId, stream, text, ts: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+});
+const HISTORY = () => [
+  log(null, null, "system", "◆ demande : « Corrige le bug du formulaire de contact sur Spotly »", 14),
+  log(null, null, "system", "◆ projet retenu : Spotly", 14),
+  log(null, null, "system", "◆ planification…", 13.9),
+  log(null, null, "system", "◆ plan : 2 étape(s) — Localiser le formulaire · Vérifier la correction", 13.6),
+  log("a1", "t0", "system", "💭 Je cherche le composant du formulaire de contact avant de toucher à quoi que ce soit", 13.4),
+  log("a1", "t0", "command", "$ grep -rn ContactScreen app/src/main", 13.3),
+  log("a1", "t0", "stdout", "app/src/main/java/fr/spotly/contact/ContactScreen.kt:14:fun ContactScreen(", 13.3),
+  log("a1", "t0", "stdout", "app/src/main/java/fr/spotly/contact/ContactViewModel.kt:22:class ContactViewModel(", 13.3),
+  log("a1", "t0", "system", "💭 La validation de l'e-mail rejette les domaines en .app : l'expression régulière s'arrête à 3 lettres", 12.9),
+  log("a1", "t0", "system", "✓ Localiser le formulaire", 12.5),
+  log("a3", "t1", "system", "💭 Je lance les tests unitaires, puis ceux d'instrumentation", 12.2),
+  log("a3", "t1", "command", "$ ./gradlew testDebugUnitTest", 12.1),
+  ...["> Task :app:preBuild UP-TO-DATE", "> Task :app:compileDebugKotlin", "> Task :app:compileDebugUnitTestKotlin",
+    "> Task :app:testDebugUnitTest", "ContactViewModelTest > email avec domaine .app est accepté PASSED",
+    "ContactViewModelTest > email sans arobase est refusé PASSED", "ContactViewModelTest > champ vide est refusé PASSED",
+    "BUILD SUCCESSFUL in 41s", "23 actionable tasks: 6 executed, 17 up-to-date"].map((t) => log("a3", "t1", "stdout", t, 11.4)),
+  log("a3", "t1", "command", "$ ./gradlew connectedAndroidTest", 11),
+  log("a3", "t1", "stderr", "> No connected devices!", 10.4),
+  log("a3", "t1", "stderr", "FAILURE: Build failed with an exception.", 10.4),
+  log("a3", "t1", "system", "✗ Vérifier la correction — `./gradlew connectedAndroidTest` a échoué (code 1)", 10.3),
+  log(null, null, "system", "📋 au tableau : « Ajouter un test sur la validation de l'e-mail »", 4),
+];
+/* Ce que disent les agents du run simulé, une ligne toutes les 3 s. */
+const LIVE_SCRIPT: [string, string, Stream, string][] = [
+  ["a0", "lt0", "system", "💭 Je fais l'inventaire du dépôt avant la release"],
+  ["a0", "lt0", "command", "$ git status --short"],
+  ["a0", "lt0", "stdout", " M app/build.gradle.kts\n M app/src/main/res/values/strings.xml"],
+  ["a0", "lt0", "system", "✓ Analyse du dépôt"],
+  ["a1", "lt2", "command", "$ ./gradlew lint"],
+  ["a1", "lt2", "stdout", "> Task :app:lintDebug\nLint found 0 errors, 2 warnings"],
+  ["a1", "lt2", "system", "✓ Lint"],
+  ["a5", "lt3", "system", "💭 Je rédige les notes de version à partir des commits depuis v2.3.0"],
+  ["a2", "lt4", "command", "$ ./gradlew assembleRelease"],
+  ["a2", "lt4", "stderr", "Execution failed for task ':app:signReleaseBundle'."],
+];
+
 export function installDevMock() {
   setInterval(advanceTodos, 4000);
+  let liveLine = 0;
+  setInterval(() => {
+    const [agentId, taskId, stream, text] = LIVE_SCRIPT[liveLine++ % LIVE_SCRIPT.length];
+    const lines = text.split("\n").map((t) => log(agentId, taskId, stream, t));
+    void emit("engine:logs", lines);
+  }, 3000);
   let tick = 0;
   // Le snapshot est poussé comme le ferait le moteur : l'exécution simulée avance.
   // Quand une étape se débloque, chacune de ses dépendances lui passe le relais.
@@ -420,6 +471,8 @@ export function installDevMock() {
         if (i >= 0) WORKFLOWS[i] = w; else WORKFLOWS.push(w);
         return w;
       }
+      case "project_brief":
+        return args.projectId === "p1" ? { file: "CLAUDE.md", chars: 4_820, injected: 3_000 } : null;
       case "team_templates": return [
         { key: "developpement", label: "Développement", preset: "developer", members: ["Tech Lead", "Développeur Frontend", "Développeur Backend", "Assurance qualité"] },
         { key: "contenu", label: "Contenu", preset: "developer", members: ["Chef de projet", "Direction artistique", "Motion designer", "Rédaction"] },
@@ -531,7 +584,7 @@ export function installDevMock() {
       case "list_projects": return PROJECTS;
       case "list_agents": return AGENTS;
       case "get_snapshot": return snapshot(++tick);
-      case "tail_logs": return [];
+      case "tail_logs": return HISTORY();
       // Une validation en attente, pour contrôler le rendu de la carte.
       case "pending_approvals": return [{
         id: "ap1", agentId: "a5", taskId: "t5", projectId: "p1", tool: "shell.exec",
@@ -543,9 +596,23 @@ export function installDevMock() {
       case "list_workflows": return WORKFLOWS;
       case "list_recent_runs":
       case "list_grants": return [];
-      case "submit_request":
+      case "submit_request": {
+        const project = PROJECTS.find((p) => p.id === args.projectId) ?? PROJECTS[0];
+        void emit("engine:logs", [
+          log(null, null, "system", `◆ demande : « ${args.text} »`),
+          log(null, null, "system", `◆ projet retenu : ${project.name}`),
+          log(null, null, "system", "◆ planification…"),
+        ]);
         await new Promise((r) => setTimeout(r, 1500));
+        void emit("engine:logs", [log(null, null, "system", "◆ plan : 1 étape(s) — exécution simulée par le harnais")]);
         return "r-mock";
+      }
+      case "run_command":
+        void emit("engine:logs", [
+          log(args.agentId, "t-cmd", "command", `$ ${args.command}`),
+          log(args.agentId, "t-cmd", "stdout", "(harnais : commande simulée, rien n'a été exécuté)"),
+        ]);
+        return "r-cmd";
       default: return null;
     }
   }, { shouldMockEvents: true });

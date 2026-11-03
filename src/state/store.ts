@@ -66,7 +66,8 @@ interface WorldStore {
   // Actions — toutes remontent leurs erreurs dans `notice` plutôt que de
   // les laisser disparaître silencieusement dans la console.
   runCommand: (command: string) => Promise<boolean>;
-  submitRequest: (text: string) => Promise<boolean>;
+  /** `projectId` : projet visé explicitement ; absent, celui de l'agent sélectionné. */
+  submitRequest: (text: string, projectId?: string) => Promise<boolean>;
   launchWorkflow: (id: WorkflowId) => Promise<void>;
   resolveApproval: (id: ApprovalId, granted: boolean) => Promise<void>;
   controlSelected: (action: TaskControl) => Promise<void>;
@@ -164,12 +165,12 @@ export const useWorld = create<WorldStore>((set, get) => ({
     }
   },
 
-  async submitRequest(text) {
+  async submitRequest(text, explicit) {
     if (!text.trim() || get().planning) return false;
     const { selectedAgent, agentsById } = get();
-    // Indice de projet : celui de l'agent sélectionné, s'il y en a un.
-    // Sinon l'orchestrateur aiguille lui-même.
-    const projectId = selectedAgent ? agentsById.get(selectedAgent)?.projectId ?? null : null;
+    // Indice de projet : celui choisi dans la zone de saisie, sinon celui
+    // de l'agent sélectionné. Sans l'un ni l'autre, l'orchestrateur aiguille.
+    const projectId = explicit ?? (selectedAgent ? agentsById.get(selectedAgent)?.projectId ?? null : null);
     set({ planning: true, logFilter: null, notice: { kind: "info", text: "L'orchestrateur planifie…" } });
     try {
       await api.submitRequest(text, projectId);
