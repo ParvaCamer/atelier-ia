@@ -593,7 +593,7 @@ async fn suites_de_l_orchestrateur_bornees_en_generations() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fichier_de_contexte_du_projet_donne_aux_agents() {
     let finish = || json!({"thought": "ok", "action": "finish", "summary": "fait"});
-    let w = world(vec![finish(), finish(), finish(), finish()]).await;
+    let w = world(vec![finish(), finish(), finish(), finish(), finish()]).await;
     let root = std::path::PathBuf::from(repo::projects::get(w.engine.db(), &w.project).await.unwrap().root_path.unwrap());
     let system_of = |i: usize| w.script.seen()[i].system.clone();
 
@@ -640,4 +640,14 @@ async fn fichier_de_contexte_du_projet_donne_aux_agents() {
         assert!(!system_of(3).contains("SECRET-HORS-PROJET"));
         assert_eq!(w.engine.project_brief(&w.project).await.unwrap(), None);
     }
+
+    // 5. Un AGENTS.md illisible n'interrompt pas la recherche : le CLAUDE.md
+    //    du même dossier est lu à sa place.
+    let _ = std::fs::remove_file(root.join("CLAUDE.md"));
+    std::fs::write(root.join("CLAUDE.md"), "CONSIGNE-CLAUDE : lancer ./gradlew test").unwrap();
+    std::fs::write(root.join("AGENTS.md"), [0xffu8, 0xfe, 0x00, 0x42]).unwrap();
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Completed).await;
+    let system = w.script.seen().last().unwrap().system.clone();
+    assert!(system.contains("## Le projet (CLAUDE.md)") && system.contains("CONSIGNE-CLAUDE"), "{system}");
 }

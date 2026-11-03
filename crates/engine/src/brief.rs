@@ -26,9 +26,10 @@ pub(crate) struct Brief {
     pub text: String,
 }
 
-/// Lit le fichier de contexte d'un dossier de projet. `None` si absent,
-/// illisible, vide, trop gros, ou s'il pointe hors du dossier (lien
-/// symbolique) : rien ne doit entrer dans le prompt par ce biais.
+/// Lit le fichier de contexte d'un dossier de projet. `None` si aucun n'est
+/// exploitable : absent, illisible, vide, trop gros, ou pointant hors du
+/// dossier (lien symbolique) — rien ne doit entrer dans le prompt par ce
+/// biais.
 pub(crate) fn read_brief(root: &str) -> Option<Brief> {
     let root = Path::new(root).canonicalize().ok()?;
     for name in PROJECT_BRIEF_FILES {
@@ -37,11 +38,15 @@ pub(crate) fn read_brief(root: &str) -> Option<Brief> {
             continue;
         }
         let mut raw = String::new();
-        let file = std::fs::File::open(&path).ok()?;
-        if file.metadata().ok()?.len() > READ_MAX {
+        // Écarté, jamais fatal : un `AGENTS.md` illisible ou qui n'est pas de
+        // l'UTF-8 laisse sa chance au fichier suivant de la liste.
+        let Ok(file) = std::fs::File::open(&path) else { continue };
+        if file.metadata().map(|m| m.len()).unwrap_or(u64::MAX) > READ_MAX {
             continue;
         }
-        file.take(READ_MAX).read_to_string(&mut raw).ok()?;
+        if file.take(READ_MAX).read_to_string(&mut raw).is_err() {
+            continue;
+        }
         let raw = raw.trim();
         if raw.is_empty() {
             continue;
