@@ -494,6 +494,59 @@ async fn plafond_mensuel_refuse_les_demandes_et_retient_le_tableau() {
     assert_eq!(w.script.seen().len(), before, "aucun appel de modèle passé le plafond");
 }
 
+/// Un plafond relevé ne relance que les pauses budgétaires : une tâche que
+/// l'utilisateur a mise en pause lui-même reste en pause. Sans cela, un
+/// réglage de coût déciderait à sa place de reprendre un travail qu'il a
+/// délibérément arrêté.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn un_plafond_releve_ne_leve_pas_une_pause_de_l_utilisateur() {
+    let w = world_costing(
+        vec![
+            json!({"thought": "j'attends", "action": "tool", "tool": "shell.exec", "args": {"command": "sleep 37.21"}}),
+            json!({"thought": "fini", "action": "finish", "summary": "fait"}),
+        ],
+        Some(0.25),
+    )
+    .await;
+    // Commande lente : la tâche est encore en cours au moment de la pause,
+    // au lieu que le test lui courre après.
+    repo::grants::upsert(
+        w.engine.db(),
+        &Grant {
+            id: uuid::Uuid::now_v7().to_string(),
+            agent_id: Some(agent_named(&w, "Agent 0").await),
+            project_id: Some(w.project.clone()),
+            tool: "shell.exec".into(),
+            resource: ResourceScope::Command { program: "sleep".into() },
+            mode: Mode::Allow,
+        },
+    )
+    .await
+    .unwrap();
+
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Running).await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    w.engine.control_task(&task, TaskControl::Pause).await.unwrap();
+    wait_for(&w, &task, TaskStatus::Paused).await;
+
+    // Le plafond passe de rien à large : aucune pause budgétaire à lever,
+    // et surtout pas celle-ci.
+    w.engine.save_settings(AppSettings { run_cost_cap_usd: Some(50.0), ..Default::default() }).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        repo::tasks::get(w.engine.db(), &task).await.unwrap().status,
+        TaskStatus::Paused,
+        "une pause demandée par l'utilisateur ne se lève pas toute seule"
+    );
+    assert_eq!(w.script.seen().len(), 1, "aucune décision supplémentaire");
+
+    // Ne pas laisser un processus gelé derrière le test.
+    w.engine.control_task(&task, TaskControl::Stop).await.unwrap();
+    wait_for(&w, &task, TaskStatus::Cancelled).await;
+}
+
 // ---------------------------------------------------------------------
 // Tableau de l'orchestrateur
 // ---------------------------------------------------------------------

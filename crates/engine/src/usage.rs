@@ -61,9 +61,13 @@ impl Engine {
             let (total, _) = repo::usage::since(self.db(), month_start()).await.map_err(|e| unreadable(&e))?;
             let spent = total.cost_usd.unwrap_or(0.0);
             if spent >= cap {
+                // Ne rien promettre que le moteur ne tienne : le cumul repart
+                // bien de zéro le 1er, mais rien ne réexamine ce jour-là les
+                // tâches mises en pause. Seul un plafond relevé les relance.
                 return Err(format!(
                     "plafond mensuel atteint : {} dépensés ce mois pour un plafond de {}. \
-                     Relève-le dans Réglages › IA, ou attends le 1er du mois",
+                     Le cumul repart de zéro le 1er du mois ; d'ici là, seul un plafond \
+                     relevé dans Réglages › IA relance une tâche en pause",
                     usd(spent),
                     usd(cap)
                 ));
