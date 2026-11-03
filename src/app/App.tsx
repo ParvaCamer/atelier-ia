@@ -49,20 +49,19 @@ export function App() {
         onFrameAll={() => worldHandle.get()?.frameAll()}
       />
       <WorldCanvas />
+      {/* Replier masque les panneaux sans les démonter : la discussion n'est
+          pas reconstruite au dépliage, et le shell garde sa session. */}
       <div className={collapsed ? "dock collapsed" : tall ? "dock tall" : "dock"}>
-        {collapsed ? (
-          <div className="pane" style={{ gridColumn: "1 / -1" }}>
+        {collapsed && (
+          <div className="pane dock-bar">
             <div className="pane-head">
               Agent, discussion, journal
               <button className="dock-toggle" onClick={() => useUi.getState().toggleCollapsed()}>déplier</button>
             </div>
           </div>
-        ) : (
-          <>
-            <AgentPanel />
-            <Channel />
-          </>
         )}
+        <AgentPanel />
+        <Channel />
       </div>
       <Settings />
       <History />

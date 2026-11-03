@@ -422,6 +422,78 @@ async fn sans_cout_annonce_le_cumul_reste_vide() {
     assert_eq!(usage.cost_usd, None, "aucun coût annoncé : on n'invente pas 0 $");
 }
 
+/// Plafond par run : à 0,25 $ l'appel et 0,50 $ de plafond, la tâche paie
+/// deux décisions puis se met en pause, contexte intact. Relever le plafond
+/// la fait reprendre seule, là où elle s'était arrêtée.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn plafond_du_run_met_en_pause_puis_reprend_au_relevement() {
+    let w = world_costing(vec![
+        json!({"thought": "un", "action": "tool", "tool": "shell.exec", "args": {"command": "echo un"}}),
+        json!({"thought": "deux", "action": "tool", "tool": "shell.exec", "args": {"command": "echo deux"}}),
+        json!({"thought": "fini", "action": "finish", "summary": "fait"}),
+    ], Some(0.25)).await;
+
+    // Saisies invalides : refusées par le moteur, rien n'est enregistré.
+    for bad in [0.0, -1.0, f64::NAN, 1e9] {
+        let err = w.engine.save_settings(AppSettings { run_cost_cap_usd: Some(bad), ..Default::default() }).await.unwrap_err();
+        assert!(err.to_string().contains("plafond par run"), "{err}");
+    }
+    assert_eq!(w.engine.settings().await.unwrap().run_cost_cap_usd, None);
+
+    let saved = w.engine.save_settings(AppSettings { run_cost_cap_usd: Some(0.504), ..Default::default() }).await.unwrap();
+    assert_eq!(saved.run_cost_cap_usd, Some(0.5), "arrondi au cent");
+
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Paused).await;
+    assert_eq!(w.script.seen().len(), 2, "aucun appel au-delà du plafond");
+    tokio::time::sleep(Duration::from_millis(400)).await; // journaux écrits par paquets
+    let logs = repo::logs::tail(w.engine.db(), None, Some(&task), 100).await.unwrap();
+    assert!(logs.iter().any(|l| l.text.contains("plafond du run atteint : 0,50 $")), "le journal dit pourquoi");
+
+    // Un plafond qui reste trop bas ne relance rien.
+    w.engine.save_settings(AppSettings { run_cost_cap_usd: Some(0.5), ..Default::default() }).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(repo::tasks::get(w.engine.db(), &task).await.unwrap().status, TaskStatus::Paused);
+
+    w.engine.save_settings(AppSettings { run_cost_cap_usd: Some(2.0), ..Default::default() }).await.unwrap();
+    wait_for(&w, &task, TaskStatus::Completed).await;
+    let seen = w.script.seen();
+    assert_eq!(seen.len(), 3);
+    assert!(seen[2].messages.iter().any(|m| m.content.contains("deux")), "la reprise garde la conversation");
+
+    let summary = w.engine.cost_summary().await.unwrap();
+    assert_eq!((summary.run_cap_usd, summary.month_cap_usd), (Some(2.0), None));
+}
+
+/// Plafond mensuel : une fois atteint, plus aucun appel ne part. La demande
+/// est refusée avant même l'aiguillage, le tableau attend, intact.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn plafond_mensuel_refuse_les_demandes_et_retient_le_tableau() {
+    let w = world_with(vec![
+        json!({"thought": "fini", "action": "finish", "summary": "fait"}),
+    ], Some(1.0), false).await;
+    let task = ai_step(&w, "Agent 0").await;
+    wait_for(&w, &task, TaskStatus::Completed).await;
+
+    w.engine.save_settings(AppSettings { month_cost_cap_usd: Some(1.0), ..Default::default() }).await.unwrap();
+    let before = w.script.seen().len();
+
+    let err = w.engine.submit_request("encore une chose", Some(&w.project)).await.unwrap_err().to_string();
+    assert!(err.contains("plafond mensuel atteint : 1,00 $"), "{err}");
+    assert!(err.contains("Réglages › IA"), "le message dit quoi faire : {err}");
+
+    let todo = w.engine.add_todo("tâche du tableau", Some(w.project.clone())).await.unwrap();
+    w.engine.process_todos().await.unwrap();
+    let todo = repo::todos::get(w.engine.db(), &todo.id).await.unwrap();
+    assert_eq!(todo.status, TodoStatus::Queued, "le tableau attend, il n'échoue pas");
+
+    // Une tâche d'agent déjà en file se met en pause au lieu d'appeler.
+    let paused = ai_step(&w, "Agent 1").await;
+    wait_for(&w, &paused, TaskStatus::Paused).await;
+    assert!(w.engine.draft_agent_skill("QA", &w.project).await.is_err());
+    assert_eq!(w.script.seen().len(), before, "aucun appel de modèle passé le plafond");
+}
+
 // ---------------------------------------------------------------------
 // Tableau de l'orchestrateur
 // ---------------------------------------------------------------------

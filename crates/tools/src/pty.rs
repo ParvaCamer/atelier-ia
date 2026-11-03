@@ -106,9 +106,16 @@ impl PtyManager {
         Ok(())
     }
 
+    /// Rend la main tout de suite. Tuer le shell peut prendre un moment
+    /// (portable-pty lui laisse une période de grâce après SIGHUP), et
+    /// l'appelant est le fil de l'interface : la fermeture se fait à côté.
     pub fn close(&self, id: &PtyId) {
-        if let Some(mut s) = self.sessions.lock().unwrap().remove(id) {
-            let _ = s.child.kill();
+        let session = self.sessions.lock().unwrap().remove(id);
+        if let Some(mut s) = session {
+            std::thread::spawn(move || {
+                let _ = s.child.kill();
+                drop(s);
+            });
         }
     }
 }

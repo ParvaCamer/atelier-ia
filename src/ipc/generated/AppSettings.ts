@@ -10,4 +10,15 @@ startOllamaWithApp: boolean,
  * Modèle Ollama d'embeddings pour la recherche par sens dans la mémoire.
  * Vide = recherche par mots seulement. Jamais un fournisseur payant.
  */
-embeddingModel: string, };
+embeddingModel: string, 
+/**
+ * Plafond de coût d'un run, en dollars, tel que les fournisseurs
+ * l'annoncent (pour Claude Code : l'équivalent API estimé). Atteint, la
+ * tâche se met en pause avant son prochain appel. `None` = aucun plafond.
+ */
+runCostCapUsd: number | null, 
+/**
+ * Plafond du mois en cours (heure locale). Atteint, plus aucun appel
+ * de modèle ne part : demandes refusées, tâches en pause.
+ */
+monthCostCapUsd: number | null, };

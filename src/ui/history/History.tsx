@@ -41,7 +41,9 @@ function MonthCost() {
   const detail = summary.byProvider.map(([p, u]) => `${p} : ${cost(u) ?? "coût non annoncé"} · ${u.calls} appel(s)`).join("\n");
   return (
     <span className="month-cost" title={`${COST_HINT}\n\n${detail}`}>
-      Ce mois : <b>{cost(summary.total) ?? "—"}</b> · {summary.total.calls} appel{summary.total.calls > 1 ? "s" : ""}
+      Ce mois : <b>{cost(summary.total) ?? "—"}</b>
+      {summary.monthCapUsd !== null && <> sur {cost({ ...summary.total, costUsd: summary.monthCapUsd })}</>}
+      {" "}· {summary.total.calls} appel{summary.total.calls > 1 ? "s" : ""}
     </span>
   );
 }

@@ -9,7 +9,7 @@
  *
  * Le filtre (tout / agent / tâche) vaut pour la discussion et le journal.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { LogLine } from "../../ipc";
 import { useWorld } from "../../state/store";
 import { useUi } from "../../state/ui";
@@ -22,6 +22,12 @@ import { toChannel, type ChannelItem, type Entry } from "./messages";
 const MAX_RENDERED = 400;
 /** Lignes de sortie visibles avant « tout afficher ». */
 const OUTPUT_PREVIEW = 6;
+/**
+ * Messages affichés d'emblée, les plus récents. Une discussion longue se
+ * relit par le haut, à la demande : chaque message affiché pèse sur chaque
+ * mise en page, et le dock en déclenche une à chaque redimensionnement.
+ */
+const DISCUSSION_WINDOW = 60;
 
 type Tab = "discussion" | "journal" | "shell";
 
@@ -121,15 +127,27 @@ function Empty() {
   );
 }
 
-function Discussion({ lines }: { lines: LogLine[] }) {
+/**
+ * `memo` : agrandir ou replier le dock fait re-rendre le canal, pas la
+ * discussion, dont les lignes n'ont pas changé.
+ */
+const Discussion = memo(function Discussion({ lines }: { lines: LogLine[] }) {
   const items = useMemo(() => toChannel(lines), [lines]);
-  const scroller = usePinnedScroll(items);
+  const [limit, setLimit] = useState(DISCUSSION_WINDOW);
+  const hidden = Math.max(0, items.length - limit);
+  const shown = hidden ? items.slice(hidden) : items;
+  const scroller = usePinnedScroll(shown);
   return (
     <div className="discussion" ref={scroller} role="log" aria-live="polite">
-      {items.length === 0 ? <Empty /> : items.map((item) => <Message key={item.id} item={item} />)}
+      {hidden > 0 && (
+        <button className="discussion-more" onClick={() => setLimit((n) => n + DISCUSSION_WINDOW)}>
+          {hidden} message{hidden > 1 ? "s" : ""} plus ancien{hidden > 1 ? "s" : ""} — afficher
+        </button>
+      )}
+      {items.length === 0 ? <Empty /> : shown.map((item) => <Message key={item.id} item={item} />)}
     </div>
   );
-}
+});
 
 function Message({ item }: { item: ChannelItem }) {
   const agentsById = useWorld((s) => s.agentsById);
@@ -197,7 +215,7 @@ function EntryView({ entry }: { entry: Entry }) {
   return <div className="entry" data-kind={entry.kind}>{entry.text}</div>;
 }
 
-function Journal({ lines }: { lines: LogLine[] }) {
+const Journal = memo(function Journal({ lines }: { lines: LogLine[] }) {
   const agentsById = useWorld((s) => s.agentsById);
   const scroller = usePinnedScroll(lines);
   return (
@@ -211,4 +229,4 @@ function Journal({ lines }: { lines: LogLine[] }) {
       ))}
     </div>
   );
-}
+});

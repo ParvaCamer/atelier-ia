@@ -8,4 +8,8 @@ export type CostSummary = { since: string, total: Usage,
 /**
  * « claude-code », « ollama », « openai »… avec leur part du cumul.
  */
-byProvider: Array<[string, Usage]>, };
+byProvider: Array<[string, Usage]>, 
+/**
+ * Plafonds en vigueur, pour les afficher à côté du cumul.
+ */
+monthCapUsd: number | null, runCapUsd: number | null, };

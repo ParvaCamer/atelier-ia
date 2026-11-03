@@ -167,7 +167,16 @@ const PROVIDERS = [
   { id: "ollama", kind: "ollama", label: "Ollama (local)", baseUrl: "http://127.0.0.1:11434", enabled: true, hasKey: false },
   { id: "openai", kind: "openai", label: "OpenAI (clé d'API)", baseUrl: "https://api.openai.com/v1", enabled: false, hasKey: false },
 ];
-let SETTINGS = { startOllamaWithApp: false, embeddingModel: "nomic-embed-text" };
+let SETTINGS: { startOllamaWithApp: boolean; embeddingModel: string; runCostCapUsd: number | null; monthCostCapUsd: number | null } =
+  { startOllamaWithApp: false, embeddingModel: "nomic-embed-text", runCostCapUsd: 2, monthCostCapUsd: 15 };
+
+/** Miroir de `usage::validate_cap` : le harnais renvoie les mêmes refus que le moteur. */
+function validateCap(label: string, v: number | null): number | null {
+  if (v === null) return null;
+  if (!Number.isFinite(v) || v <= 0) throw `plafond ${label} invalide : indique un montant en dollars supérieur à 0, ou laisse le champ vide pour ne rien plafonner`;
+  if (v > 100_000) throw `plafond ${label} de ${v.toFixed(2).replace(".", ",")} $ : au-delà de 100000,00 $, c'est sans doute une faute de frappe`;
+  return Math.round(v * 100) / 100;
+}
 const WORKFLOWS: Record<string, any>[] = [{
   id: "w1", projectId: "p1", name: "Release Spotly", description: "Prépare une release", enabled: true,
   trigger: { kind: "manual" },
@@ -418,6 +427,8 @@ export function installDevMock() {
           ["claude-code", { calls: 140, inputTokens: 1_200_000, outputTokens: 80_000, costUsd: 12.84 }],
           ["ollama", { calls: 72, inputTokens: 280_000, outputTokens: 16_000, costUsd: 0 }],
         ],
+        monthCapUsd: SETTINGS.monthCostCapUsd,
+        runCapUsd: SETTINGS.runCostCapUsd,
       };
       case "list_memories": return MEMORIES;
       case "save_memory": return { ...args.entry, id: args.entry.id || `m${Date.now()}` };
@@ -517,7 +528,12 @@ export function installDevMock() {
       case "get_settings": return SETTINGS;
       case "save_settings":
         if (!/^[A-Za-z0-9._:/-]*$/.test(args.settings.embeddingModel.trim())) throw `modèle d'embeddings « ${args.settings.embeddingModel.trim()} » invalide : nom de modèle Ollama attendu (ex. nomic-embed-text)`;
-        SETTINGS = { ...args.settings, embeddingModel: args.settings.embeddingModel.trim() };
+        SETTINGS = {
+          ...args.settings,
+          embeddingModel: args.settings.embeddingModel.trim(),
+          runCostCapUsd: validateCap("par run", args.settings.runCostCapUsd),
+          monthCostCapUsd: validateCap("mensuel", args.settings.monthCostCapUsd),
+        };
         return SETTINGS;
       case "tool_catalog": return [
         { id: "fs.delete", description: "Supprime un fichier du projet (jamais un dossier)." },

@@ -45,6 +45,9 @@ pub struct CostSummary {
     pub total: Usage,
     /// « claude-code », « ollama », « openai »… avec leur part du cumul.
     pub by_provider: Vec<(String, Usage)>,
+    /// Plafonds en vigueur, pour les afficher à côté du cumul.
+    pub month_cap_usd: Option<f64>,
+    pub run_cap_usd: Option<f64>,
 }
 
 /// Trace d'audit d'un appel d'outil, telle qu'écrite par la porte de permissions.
