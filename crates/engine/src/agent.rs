@@ -249,6 +249,15 @@ impl Engine {
         }
         out.push_str(&format!("Ton rôle : {}. Compétences : {}.\n", agent.role, agent.skills.join(", ")));
         out.push_str(&skill_section(db, agent).await);
+        // Après le métier, le projet : le plus précis l'emporte.
+        if let Some(root) = project.root_path.clone() {
+            if let Ok(Some(brief)) = tokio::task::spawn_blocking(move || crate::brief::read_brief(&root)).await {
+                out.push_str(&format!(
+                    "\n## Le projet ({})\nConsignes propres à ce projet, écrites par son équipe. Elles priment sur ta méthode générale.\n{}\n",
+                    brief.file, brief.text
+                ));
+            }
+        }
 
         // Mémoire : conventions et échecs connus d'abord, puis ce que la
         // recherche (mots exacts et proximité de sens) rapproche de la tâche.

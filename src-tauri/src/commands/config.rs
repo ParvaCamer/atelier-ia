@@ -46,6 +46,11 @@ pub async fn save_workflow(state: State<'_, AppState>, workflow: Workflow) -> Cm
 }
 
 #[tauri::command]
+pub async fn project_brief(state: State<'_, AppState>, project_id: ProjectId) -> CmdResult<Option<ProjectBrief>> {
+    state.engine.project_brief(&project_id).await.map_err(err)
+}
+
+#[tauri::command]
 pub fn team_templates(state: State<'_, AppState>) -> Vec<TeamTemplate> {
     state.engine.team_templates()
 }

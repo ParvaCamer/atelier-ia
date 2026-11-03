@@ -6,6 +6,7 @@
 
 pub mod agent;
 pub mod ai;
+pub mod brief;
 pub mod config;
 pub mod gate;
 pub mod history;

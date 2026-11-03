@@ -41,3 +41,17 @@ impl Zone {
         Self { x, z, width, depth }
     }
 }
+
+/// Fichier de contexte trouvé dans le dossier d'un projet (`AGENTS.md`,
+/// sinon `CLAUDE.md`) : ses conventions, données à chacun de ses agents.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ProjectBrief {
+    /// Nom du fichier, relatif au dossier du projet.
+    pub file: String,
+    /// Taille du fichier, en caractères.
+    pub chars: u32,
+    /// Caractères réellement injectés dans le prompt des agents.
+    pub injected: u32,
+}
