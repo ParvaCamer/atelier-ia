@@ -100,6 +100,10 @@ pub struct Engine {
     pub(crate) todo_lock: Mutex<()>,
     /// Réveille le tableau dès qu'une tâche y est posée.
     pub(crate) todo_waker: Notify,
+    /// Tâches mises en pause par un plafond de coût : seules celles-ci
+    /// reprennent d'elles-mêmes quand le plafond est relevé. Une pause
+    /// demandée par l'utilisateur n'est jamais levée à sa place.
+    pub(crate) budget_holds: std::sync::Mutex<std::collections::HashSet<TaskId>>,
 }
 
 impl Engine {
@@ -136,6 +140,7 @@ impl Engine {
             watch_state: Mutex::new(HashMap::new()),
             todo_lock: Mutex::new(()),
             todo_waker: Notify::new(),
+            budget_holds: std::sync::Mutex::new(std::collections::HashSet::new()),
         });
 
         engine.hydrate().await?;

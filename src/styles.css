@@ -119,7 +119,10 @@ button.stat:disabled { cursor: default; }
 
 /* ---------------------------------- monde 3D ---------------------------------- */
 
-.stage { position: relative; overflow: hidden; }
+/* `contain: strict` : la taille du monde vient de la grille, jamais du
+   canvas. Sans ça, le tampon du canvas (taille × densité de pixels) pèse sur
+   la piste `1fr` et le navigateur recalcule tout à chaque redimensionnement. */
+.stage { position: relative; overflow: hidden; contain: strict; }
 .stage canvas { display: block; width: 100%; height: 100%; }
 
 .view-switch {
@@ -221,6 +224,11 @@ button.stat:disabled { cursor: default; }
   background: var(--panel-solid);
 }
 .dock.collapsed { height: 34px; }
+.dock.collapsed > .pane:not(.dock-bar) { display: none; }
+.dock-bar { grid-column: 1 / -1; }
+/* Le dock change de hauteur d'un clic : sans confinement, chaque
+   changement relance la mise en page de toute la fenêtre. */
+.dock > .pane { contain: strict; }
 
 /* `min-height: 0` : sans lui, un élément de grille ou de flex grandit à la
    taille de son contenu, et la zone interne ne défile jamais — elle déborde,
@@ -917,7 +925,9 @@ select.input { appearance: none; padding-right: 22px; background-image: linear-g
 .ask-glyph { color: #a78bfa; font-size: 11px; }
 .ask kbd { margin-left: auto; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--border-strong); font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); }
 
-.discussion { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 8px; display: flex; flex-direction: column; gap: 12px; user-select: text; }
+.discussion { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 8px; display: flex; flex-direction: column; gap: 12px; user-select: text; contain: strict; }
+.discussion-more { align-self: center; font-size: 11.5px; color: var(--text-faint); padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; }
+.discussion-more:hover { color: var(--text-dim); border-color: var(--border-strong); }
 .msg { display: flex; gap: 10px; align-items: flex-start; max-width: 920px; }
 .avatar {
   flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
@@ -1003,3 +1013,19 @@ select.input { appearance: none; padding-right: 22px; background-image: linear-g
 .palette-item small { margin-left: auto; color: var(--text-faint); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .palette-empty { padding: 6px 8px; color: var(--text-faint); font-size: 12px; }
 @media (max-width: 720px) { .palette-sections { grid-template-columns: 1fr; } }
+
+/* ---------------------------------- plafonds de coût ---------------------------------- */
+
+.cost-fields { display: flex; align-items: flex-end; gap: 14px; margin-top: 6px; flex-wrap: wrap; }
+.cost-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--text-faint); }
+.cost-input { position: relative; display: inline-flex; align-items: center; }
+.cost-input .input { width: 120px; padding-right: 22px; }
+.cost-input .unit { position: absolute; right: 9px; color: var(--text-faint); font-size: 12px; pointer-events: none; }
+.cost-meter { margin-top: 10px; max-width: 560px; }
+.cost-meter-label { font-size: 12px; color: var(--text-dim); }
+.cost-meter-label b { color: var(--text); font-variant-numeric: tabular-nums; }
+.cost-bar { height: 5px; margin-top: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
+.cost-bar span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.cost-meter[data-state="near"] .cost-bar span { background: var(--warn); }
+.cost-meter[data-state="over"] .cost-bar span { background: var(--err); }
+.cost-over { color: #fca5a5; }

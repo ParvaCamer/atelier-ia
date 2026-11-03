@@ -76,6 +76,15 @@ pub struct AppSettings {
     /// Vide = recherche par mots seulement. Jamais un fournisseur payant.
     #[serde(default = "default_embedding_model")]
     pub embedding_model: String,
+    /// Plafond de coût d'un run, en dollars, tel que les fournisseurs
+    /// l'annoncent (pour Claude Code : l'équivalent API estimé). Atteint, la
+    /// tâche se met en pause avant son prochain appel. `None` = aucun plafond.
+    #[serde(default)]
+    pub run_cost_cap_usd: Option<f64>,
+    /// Plafond du mois en cours (heure locale). Atteint, plus aucun appel
+    /// de modèle ne part : demandes refusées, tâches en pause.
+    #[serde(default)]
+    pub month_cost_cap_usd: Option<f64>,
 }
 
 pub const DEFAULT_EMBEDDING_MODEL: &str = "nomic-embed-text";
@@ -86,7 +95,12 @@ fn default_embedding_model() -> String {
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { start_ollama_with_app: false, embedding_model: default_embedding_model() }
+        Self {
+            start_ollama_with_app: false,
+            embedding_model: default_embedding_model(),
+            run_cost_cap_usd: None,
+            month_cost_cap_usd: None,
+        }
     }
 }
 

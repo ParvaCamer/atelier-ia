@@ -348,6 +348,7 @@ impl Engine {
             max_tokens: 2_048,
             temperature: 0.3,
         };
+        self.ensure_budget(None).await?;
         let completion = self
             .providers()
             .complete("reasoning.high", request, &CancellationToken::new())
@@ -843,14 +844,22 @@ impl Engine {
         if !embedding_model.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':' | '/')) {
             anyhow::bail!("modèle d'embeddings « {embedding_model} » invalide : nom de modèle Ollama attendu (ex. nomic-embed-text)");
         }
-        let settings = AppSettings { embedding_model, ..settings };
+        let settings = AppSettings {
+            embedding_model,
+            run_cost_cap_usd: crate::usage::validate_cap("par run", settings.run_cost_cap_usd)?,
+            month_cost_cap_usd: crate::usage::validate_cap("mensuel", settings.month_cost_cap_usd)?,
+            ..settings
+        };
         repo::settings::set(self.db(), SETTINGS_KEY, &settings).await?;
+        // Un plafond relevé (ou retiré) libère les tâches qu'il retenait.
+        self.resume_budget_holds().await;
         Ok(settings)
     }
 
     /// Appel minimal pour vérifier une route. Avec Claude Code, consomme un
     /// peu de quota : l'interface le signale.
     pub async fn test_route(&self, model_ref: &str) -> anyhow::Result<RouteTest> {
+        self.ensure_budget(None).await?;
         let started = Instant::now();
         let completion = self
             .providers()

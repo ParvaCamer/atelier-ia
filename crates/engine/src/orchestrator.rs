@@ -175,6 +175,8 @@ impl Engine {
             anyhow::bail!("demande vide");
         }
         let cancel = CancellationToken::new();
+        // Refusée d'emblée plutôt qu'après un aiguillage payé pour rien.
+        self.ensure_budget(None).await?;
         self.orchestrator_log(None, format!("◆ demande : « {text} »"));
         self.set_orchestrator(OrchestratorStatus::Routing, None, Some(format!("« {text} »"))).await;
         // Appels faits avant que le run existe : rattachés à lui une fois créé.
@@ -208,6 +210,7 @@ impl Engine {
         let mut last_error = String::new();
 
         for attempt in 0..2 {
+            self.ensure_budget(None).await?;
             self.orchestrator_log(
                 Some(&project.id),
                 if attempt == 0 { "◆ planification…" } else { "◆ plan invalide, correction…" },
@@ -328,6 +331,7 @@ impl Engine {
         cancel: &CancellationToken,
         spent: &mut Vec<String>,
     ) -> anyhow::Result<Option<Project>> {
+        self.ensure_budget(None).await?;
         let completion = self
             .providers()
             .complete(model_ref, request, cancel)

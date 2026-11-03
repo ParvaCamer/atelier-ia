@@ -103,6 +103,10 @@ impl Engine {
         if !worth_it || self.providers().route(EXTRACT_ROUTE).is_none() {
             return Ok(0);
         }
+        // Mémoriser est un bonus : un plafond atteint le saute sans bruit.
+        if self.budget_check(Some(&task.run_id)).await.is_err() {
+            return Ok(0);
+        }
 
         let agent = repo::agents::get(db, &task.agent_id).await?;
         let project = repo::projects::get(db, &task.project_id).await?;

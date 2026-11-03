@@ -686,6 +686,18 @@ rattachés après création du run). Agrégée à la lecture : `RunSummary.usage
 `TaskDetail.usage`, `cost_summary()` pour le cumul du mois (heure locale),
 par fournisseur. Coût absent ≠ 0 $ : `None` quand rien n'a été annoncé.
 
+**Plafonds** (`AppSettings.run_cost_cap_usd`, `month_cost_cap_usd`,
+Réglages › IA). `Engine::budget_check` est appelé **avant** chaque appel de
+modèle, contre le cumul déjà consigné ; fail-closed (cumul illisible =
+refus). Plafond du run atteint : la tâche d'agent se met en pause, contexte
+intact, et `resume_budget_holds` la relance quand un plafond relevé le
+permet (seules les pauses budgétaires, jamais celles de l'utilisateur).
+Plafond du mois atteint : demandes, brouillons et tests de route refusés,
+le tableau attend sans faire échouer ses tâches, l'extraction de mémoire
+est sautée. Les étapes de commandes (sans modèle) continuent. Un appel en
+cours n'est jamais coupé : le dernier peut dépasser de quelques centimes.
+Le temps passé en pause ne compte pas dans la durée maximale d'une tâche.
+
 ## Planifications (implémentées)
 
 Table unique pour deux cibles : un **workflow** (gratuit à lancer, déjà un
@@ -795,6 +807,16 @@ envoie, ⇧↵ passe à la ligne. La même saisie s'ouvre en modale par **⌘K /
 Ctrl+K** (`CommandPalette`), avec le lancement des workflows enregistrés et
 l'accès aux panneaux. Aucune validation dans l'interface : l'erreur du
 moteur s'affiche telle quelle.
+
+Redimensionner le dock doit rester instantané : replier **masque** les
+panneaux sans les démonter (le shell garde sa session), la discussion
+n'affiche que ses 60 derniers messages (les plus anciens à la demande) et
+n'est pas re-rendue quand seule la taille change (`memo`), les panneaux et
+la scène sont isolés par `contain: strict`. Le monde suit la taille de son
+conteneur (`ResizeObserver`, appliqué une fois par image), pas seulement
+celle de la fenêtre. La fermeture d'un PTY tue le shell hors du fil de
+l'appelant : sur macOS, une commande Tauri synchrone tourne sur le fil de
+l'interface.
 
 ---
 

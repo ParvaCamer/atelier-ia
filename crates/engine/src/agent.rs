@@ -100,9 +100,22 @@ impl Engine {
         let mut progress = 0.0f32;
         let mut cost = 0.0f64;
 
+        // Le temps passé en pause ne compte pas dans la durée maximale : une
+        // tâche arrêtée par un plafond peut attendre des jours son relèvement.
+        let mut paused_for = Duration::ZERO;
+
         for step in 1..=MAX_STEPS {
-            wait_if_paused(paused, &ctx.cancel).await?;
-            if started.elapsed() > MAX_WALL {
+            paused_for += wait_if_paused(paused, &ctx.cancel).await?;
+            // Avant chaque appel : un plafond atteint met la tâche en pause,
+            // contexte intact, plutôt que de la faire échouer et de perdre
+            // ce qu'elle a déjà payé.
+            while let Err(reason) = self.budget_check(Some(&task.run_id)).await {
+                if let Err(e) = self.hold_for_budget(task, &reason).await {
+                    return Err(fail(format!("{reason} (mise en pause impossible : {e})")));
+                }
+                paused_for += wait_if_paused(paused, &ctx.cancel).await?;
+            }
+            if started.elapsed().saturating_sub(paused_for) > MAX_WALL {
                 return Err(fail(format!("durée maximale de {} min dépassée", MAX_WALL.as_secs() / 60)));
             }
 
@@ -352,7 +365,9 @@ async fn skill_section(db: &atelier_store::Db, agent: &Agent) -> String {
     out
 }
 
-async fn wait_if_paused(paused: &mut watch::Receiver<bool>, cancel: &CancellationToken) -> Result<(), Failure> {
+/// Renvoie le temps passé en pause.
+async fn wait_if_paused(paused: &mut watch::Receiver<bool>, cancel: &CancellationToken) -> Result<Duration, Failure> {
+    let since = Instant::now();
     if *paused.borrow() {
         tokio::select! {
             _ = paused.wait_for(|p| !*p) => {}
@@ -362,7 +377,7 @@ async fn wait_if_paused(paused: &mut watch::Receiver<bool>, cancel: &Cancellatio
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
-    Ok(())
+    Ok(since.elapsed())
 }
 
 fn compact(messages: &mut [Message]) {

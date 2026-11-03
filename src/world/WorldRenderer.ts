@@ -106,6 +106,13 @@ export class WorldRenderer {
   private lively = true;
   private elapsed = 0;
   private disposed = false;
+  /**
+   * La fenêtre n'est pas seule à changer la taille du monde : le dock
+   * s'agrandit et se replie. L'observateur ne fait que lever ce drapeau, la
+   * boucle redimensionne une fois par image, jamais pendant la mise en page.
+   */
+  private sizeDirty = true;
+  private sizeObserver = new ResizeObserver(() => { this.sizeDirty = true; });
   private lastTick = -1;
   private unsubscribe: (() => void)[] = [];
   private tmp = new Vector3();
@@ -421,7 +428,7 @@ export class WorldRenderer {
       { passive: false },
     );
 
-    window.addEventListener("resize", this.resize);
+    this.sizeObserver.observe(this.canvas.parentElement ?? this.canvas);
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
     // Fenêtre qui perd le focus : une touche relâchée ailleurs ne doit pas
@@ -477,15 +484,21 @@ export class WorldRenderer {
     return this.orchestrator.pickBoard(this.raycaster);
   }
 
-  private resize = () => {
+  private size = { w: 0, h: 0 };
+  /** Vrai si la taille a réellement changé (le tampon du canvas est alors réalloué). */
+  private resize(): boolean {
+    this.sizeDirty = false;
     const rect = this.canvas.getBoundingClientRect();
-    const w = Math.max(1, rect.width);
-    const h = Math.max(1, rect.height);
+    const w = Math.max(1, Math.round(rect.width));
+    const h = Math.max(1, Math.round(rect.height));
+    if (w === this.size.w && h === this.size.h) return false;
+    this.size = { w, h };
     this.renderer.setSize(w, h, false);
     this.css.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-  };
+    return true;
+  }
 
   // ---------------------------------------------------------------
   // Boucle
@@ -503,9 +516,12 @@ export class WorldRenderer {
       // Monde au repos (personne ne marche, caméra posée, aucun signal qui
       // pulse) : 10 images par seconde suffisent à la respiration des
       // agents, et le portable ne chauffe pas pour une scène immobile.
+      // Une image tout de suite après un redimensionnement : sinon le monde
+      // reste étiré jusqu'à la prochaine image de repos.
+      const resized = this.sizeDirty && this.resize();
       const ticked = useWorld.getState().snapshot.tick !== this.lastTick;
       const walking = this.mode === "walk" && this.keys.size > 0;
-      if (!this.lively && !walking && !ticked && !this.cameraMoving() && now - this.lastFrame < IDLE_FRAME_MS) return;
+      if (!resized && !this.lively && !walking && !ticked && !this.cameraMoving() && now - this.lastFrame < IDLE_FRAME_MS) return;
       this.lastFrame = now;
 
       const dt = Math.min((now - this.last) / 1000 || 0, 0.1);
@@ -614,7 +630,7 @@ export class WorldRenderer {
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
-    window.removeEventListener("resize", this.resize);
+    this.sizeObserver.disconnect();
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);

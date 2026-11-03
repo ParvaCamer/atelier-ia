@@ -216,6 +216,12 @@ impl Engine {
         let Ok(_guard) = self.todo_lock.try_lock() else { return Ok(()) };
         self.close_finished_todos().await?;
 
+        // Plafond mensuel atteint : le tableau attend, intact. Lancer ses
+        // tâches les ferait toutes échouer sur le même refus.
+        if self.budget_check(None).await.is_err() {
+            return Ok(());
+        }
+
         // Une seule proposition à la fois, et seulement celles qui n'ont pas
         // déjà échoué à l'examen (note posée) : on ne paie pas un appel de
         // modèle toutes les trois secondes pour la même erreur.

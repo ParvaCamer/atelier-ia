@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { HealthState, ModelRoute, ProviderConfig } from "../../ipc";
+import { useEffect, useState } from "react";
+import type { CostSummary, HealthState, ModelRoute, ProviderConfig } from "../../ipc";
 import { api } from "../../ipc";
 import { useConfig } from "../../state/config";
 import { useWorld } from "../../state/store";
@@ -56,6 +56,8 @@ export function AiPanel() {
       </p>
       <Feedback error={job.error} ok={null} />
 
+      <CostCaps />
+
       <EmbeddingSetting />
 
       <div className="ai-head">
@@ -84,6 +86,93 @@ export function AiPanel() {
           />
         )}
       </div>
+    </div>
+  );
+}
+
+/** « 12,5 » → 12.5 ; vide → null. Seule la lecture du nombre se fait ici : les bornes sont celles du moteur. */
+function parseAmount(text: string): number | null | "illisible" {
+  const t = text.trim().replace(/\s|\$/g, "").replace(",", ".");
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : "illisible";
+}
+
+const amount = (v: number | null) => (v === null ? "" : String(v).replace(".", ","));
+const dollars = (v: number) => `${v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+
+/**
+ * Plafonds de coût. Le moteur les vérifie avant chaque appel de modèle :
+ * l'interface ne fait qu'afficher le cumul et transmettre la saisie.
+ */
+function CostCaps() {
+  const settings = useConfig((s) => s.settings);
+  const afterSave = useConfig((s) => s.afterSave);
+  const [run, setRun] = useState(amount(settings.runCostCapUsd));
+  const [month, setMonth] = useState(amount(settings.monthCostCapUsd));
+  const [summary, setSummary] = useState<CostSummary | null>(null);
+  const job = useJob();
+  const dirty = run !== amount(settings.runCostCapUsd) || month !== amount(settings.monthCostCapUsd);
+  useUnsavedFlag("cost-caps", dirty);
+
+  useEffect(() => { api.costSummary().then(setSummary).catch(() => setSummary(null)); }, [settings]);
+
+  const save = async () => {
+    const r = parseAmount(run);
+    const m = parseAmount(month);
+    if (r === "illisible" || m === "illisible") {
+      job.setError(`« ${(r === "illisible" ? run : month).trim()} » n'est pas un montant : écris par exemple 5 ou 12,50, ou laisse vide.`);
+      return;
+    }
+    const saved = await job.run(() => api.saveSettings({ ...settings, runCostCapUsd: r, monthCostCapUsd: m }), "Plafonds enregistrés.");
+    if (saved) {
+      setRun(amount(saved.runCostCapUsd));
+      setMonth(amount(saved.monthCostCapUsd));
+      await afterSave();
+    }
+  };
+
+  const spent = summary?.total.costUsd ?? 0;
+  const cap = settings.monthCostCapUsd;
+  const ratio = cap ? Math.min(1, spent / cap) : 0;
+
+  return (
+    <div className="cost-caps">
+      <div className="ai-head"><h2>Plafonds de coût</h2></div>
+      <div className="cost-fields">
+        <label>
+          <span>Par run</span>
+          <span className="cost-input">
+            <input className="input" data-mono inputMode="decimal" value={run} placeholder="aucun" aria-label="Plafond par run, en dollars" onChange={(e) => setRun(e.target.value)} />
+            <span className="unit">$</span>
+          </span>
+        </label>
+        <label>
+          <span>Par mois</span>
+          <span className="cost-input">
+            <input className="input" data-mono inputMode="decimal" value={month} placeholder="aucun" aria-label="Plafond mensuel, en dollars" onChange={(e) => setMonth(e.target.value)} />
+            <span className="unit">$</span>
+          </span>
+        </label>
+        {dirty && <button className="btn small" disabled={job.busy} onClick={() => void save()}>Enregistrer</button>}
+      </div>
+      {summary && (
+        <div className="cost-meter" data-state={cap && spent >= cap ? "over" : ratio >= 0.8 ? "near" : "ok"}>
+          <div className="cost-meter-label">
+            Ce mois : <b>{dollars(spent)}</b>{cap ? <> sur {dollars(cap)}</> : " · aucun plafond mensuel"}
+            {cap && spent >= cap && <span className="cost-over"> — plafond atteint, plus aucun appel ne part</span>}
+          </div>
+          {cap ? <div className="cost-bar"><span style={{ width: `${ratio * 100}%` }} /></div> : null}
+        </div>
+      )}
+      <p className="note">
+        Vérifiés avant chaque appel de modèle. Un run qui atteint son plafond met sa tâche en pause, conversation
+        intacte ; elle reprend d'elle-même si tu relèves le plafond. Le plafond du mois atteint, les demandes sont
+        refusées et le tableau attend. Seuls les coûts annoncés comptent : pour Claude Code c'est l'équivalent API
+        estimé (ton abonnement n'est pas facturé à l'appel), Ollama est gratuit. L'appel en cours n'est jamais
+        coupé : le dernier peut dépasser de quelques centimes.
+      </p>
+      <FeedbackLine error={job.error} ok={job.ok} />
     </div>
   );
 }
